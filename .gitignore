@@ -1,0 +1,14 @@
+# VSCode 本地配置
+.vscode/
+
+# ESP-IDF 构建产物
+build/
+sdkconfig
+sdkconfig.old
+
+# 组件管理器下载的依赖
+managed_components/
+dependencies.lock
+
+# VSCode C/C++ 插件生成的索引
+.cache/

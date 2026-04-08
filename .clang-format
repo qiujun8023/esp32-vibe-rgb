@@ -1,0 +1,12 @@
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+SortIncludes: true
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: None
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# 启用对齐功能，使代码更美观
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true

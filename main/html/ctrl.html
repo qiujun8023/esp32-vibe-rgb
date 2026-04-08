@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32-LED</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div style="max-width:520px;margin:0 auto;padding:16px">
+  <div class="header">💡 ESP32-LED</div>
+
+  <!-- 矩阵实时预览 -->
+  <div class="card" style="padding:14px">
+    <div id="matrix-wrap"><canvas id="matrix-canvas" width="160" height="160"></canvas></div>
+    <div class="status-bar">
+      <span id="st-conn">⬤ 连接中</span>
+      <span id="st-fps">-- fps</span>
+      <span id="st-vol">音量 --%</span>
+      <span id="st-effect">-</span>
+    </div>
+  </div>
+
+  <!-- 标签页 -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('effects',this)">效果</div>
+    <div class="tab" onclick="switchTab('audio',this)">音频</div>
+    <div class="tab" onclick="switchTab('led',this)">灯光</div>
+    <div class="tab" onclick="switchTab('wifi',this)">网络</div>
+    <div class="tab" onclick="switchTab('system',this)">系统</div>
+  </div>
+
+  <!-- 效果标签 -->
+  <div id="tab-effects" class="tab-pane active">
+    <div class="card">
+      <h3>效果选择</h3>
+      <div id="fx-grid" class="fx-grid"></div>
+    </div>
+    <div class="card">
+      <h3>效果参数</h3>
+      <div class="row"><label>Speed</label>
+        <input type="range" id="speed" min="0" max="255" oninput="onSlider('speed',this)">
+        <span id="speed_v" class="val-edit" onclick="editVal('speed')">128</span></div>
+      <div class="row"><label>Intensity</label>
+        <input type="range" id="intensity" min="0" max="255" oninput="onSlider('intensity',this)">
+        <span id="intensity_v" class="val-edit" onclick="editVal('intensity')">128</span></div>
+      <div class="row" id="c1-row"><label id="c1-lbl">Custom 1</label>
+        <input type="range" id="custom1" min="0" max="255" oninput="onSlider('custom1',this)">
+        <span id="custom1_v" class="val-edit" onclick="editVal('custom1')">128</span></div>
+      <div class="row" id="c2-row"><label id="c2-lbl">Custom 2</label>
+        <input type="range" id="custom2" min="0" max="255" oninput="onSlider('custom2',this)">
+        <span id="custom2_v" class="val-edit" onclick="editVal('custom2')">128</span></div>
+      <div class="row" id="c3-row"><label id="c3-lbl">Custom 3</label>
+        <input type="range" id="custom3" min="0" max="255" oninput="onSlider('custom3',this)">
+        <span id="custom3_v" class="val-edit" onclick="editVal('custom3')">128</span></div>
+    </div>
+    <div class="card">
+      <h3>调色板</h3>
+      <div id="palette-grid" class="fx-grid"></div>
+    </div>
+    <div class="card">
+      <h3>频率方向</h3>
+      <div class="btn-row">
+        <button id="dir0" class="btn active" onclick="setFreqDir(0)">← 左低右高</button>
+        <button id="dir1" class="btn" onclick="setFreqDir(1)">↑ 下低上高</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 音频标签 -->
+  <div id="tab-audio" class="tab-pane">
+    <div class="card">
+      <h3>自动增益 AGC</h3>
+      <div class="btn-row">
+        <button id="agc0" class="btn" onclick="setAGC(0)">关闭</button>
+        <button id="agc1" class="btn active" onclick="setAGC(1)">普通</button>
+        <button id="agc2" class="btn" onclick="setAGC(2)">强力</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>音频参数</h3>
+      <div class="row"><label>手动增益</label>
+        <input type="range" id="gain" min="1" max="200" oninput="onSlider('gain',this)">
+        <span id="gain_v" class="val-edit" onclick="editVal('gain',1,200)">40</span></div>
+      <div class="row"><label>噪声门限</label>
+        <input type="range" id="squelch" min="0" max="255" oninput="onSlider('squelch',this)">
+        <span id="squelch_v" class="val-edit" onclick="editVal('squelch')">5</span></div>
+      <div class="row"><label>FFT 平滑</label>
+        <input type="range" id="fft_smooth" min="0" max="255" oninput="onSlider('fft_smooth',this)">
+        <span id="fft_smooth_v" class="val-edit" onclick="editVal('fft_smooth')">100</span></div>
+    </div>
+    <div class="card">
+      <h3>麦克风 GPIO（修改后需保存重启）</h3>
+      <div class="field"><label>WS (LRCK)</label><input type="text" id="mic_ws"></div>
+      <div class="field"><label>SCK (BCLK)</label><input type="text" id="mic_sck"></div>
+      <div class="field"><label>DIN (DATA)</label><input type="text" id="mic_din"></div>
+    </div>
+  </div>
+
+  <!-- 灯光标签 -->
+  <div id="tab-led" class="tab-pane">
+    <div class="card">
+      <h3>亮度</h3>
+      <div class="row"><label>亮度</label>
+        <input type="range" id="brightness" min="0" max="255" oninput="onSlider('brightness',this)">
+        <span id="brightness_v" class="val-edit" onclick="editVal('brightness')">160</span></div>
+    </div>
+    <div class="card">
+      <h3>矩阵配置（修改后需保存重启）</h3>
+      <div class="field"><label>LED 数据线 GPIO</label>
+        <input type="text" id="led_gpio" placeholder="8"></div>
+      <div class="field"><label>矩阵宽度</label>
+        <input type="text" id="led_w" placeholder="8"></div>
+      <div class="field"><label>矩阵高度</label>
+        <input type="text" id="led_h" placeholder="8"></div>
+      <div class="field"><label>走线方式</label>
+        <select id="led_serpentine" onchange="updateLedPreview()">
+          <option value="1">蛇形（锯齿）</option>
+          <option value="0">顺序</option>
+        </select></div>
+      <div class="field"><label>起始角</label>
+        <select id="led_start" onchange="updateLedPreview()">
+          <option value="0">左下</option>
+          <option value="1">右下</option>
+          <option value="2">左上</option>
+          <option value="3">右上</option>
+        </select></div>
+    </div>
+    <div class="card">
+      <h3>LED 编号预览</h3>
+      <div class="led-preview-wrap">
+        <canvas id="led-preview" width="200" height="200"></canvas>
+      </div>
+      <p class="preview-hint">数字为 LED 索引，红色虚线为数据线走向</p>
+      <div style="text-align:center;margin-top:12px">
+        <button class="btn primary" onclick="testLedOrder()">测试硬件布线</button>
+      </div>
+      <p class="preview-hint">LED 将按索引顺序依次点亮，观察实际走线</p>
+    </div>
+  </div>
+
+  <!-- 网络标签 -->
+  <div id="tab-wifi" class="tab-pane">
+    <div class="card">
+      <h3>WiFi（修改后需保存重启）</h3>
+      <div class="field"><label>SSID</label>
+        <input type="text" id="cfg_ssid" autocomplete="off"></div>
+      <div class="field"><label>新密码（留空不修改）</label>
+        <input type="password" id="pass_new" autocomplete="new-password"></div>
+    </div>
+    <div class="card">
+      <h3>IP 配置</h3>
+      <div class="field"><label>分配方式</label>
+        <select id="ip_mode" onchange="toggleStaticFields()">
+          <option value="0">DHCP</option>
+          <option value="1">静态 IP</option>
+        </select></div>
+      <div id="static-ip-fields">
+        <div class="field"><label>IP 地址</label><input type="text" id="s_ip"></div>
+        <div class="field"><label>子网掩码</label><input type="text" id="s_mask"></div>
+        <div class="field"><label>网关</label><input type="text" id="s_gw"></div>
+        <div class="field"><label>DNS 主</label><input type="text" id="s_dns1"></div>
+        <div class="field"><label>DNS 备</label><input type="text" id="s_dns2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 系统标签 -->
+  <div id="tab-system" class="tab-pane">
+    <div class="card">
+      <h3>操作</h3>
+      <div class="btn-row">
+        <button class="btn primary" onclick="saveSettings()">💾 保存硬件/WiFi设置</button>
+        <button class="btn" onclick="doReboot()">🔄 重启设备</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn danger" onclick="resetWifi()">重置 WiFi</button>
+        <button class="btn danger" onclick="factoryReset()">恢复出厂</button>
+      </div>
+      <p style="margin-top:8px;font-size:.8rem;color:#8b949e">效果、亮度、音频参数修改后自动保存。GPIO/WiFi/矩阵设置保存后需重启生效。</p>
+      <div id="sys-msg" style="margin-top:10px;font-size:.85rem;min-height:18px"></div>
+    </div>
+  </div>
+
+</div>
+<script src="/ctrl.js"></script>
+</body>
+</html>

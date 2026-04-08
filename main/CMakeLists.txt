@@ -1,0 +1,27 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "settings.c"
+        "led.c"
+        "mic.c"
+        "effects.c"
+        "wifi_prov.c"
+        "wifi_ctrl.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        driver
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
+        esp_http_server
+        led_strip
+        esp-dsp
+        json
+        esp_timer
+    EMBED_TXTFILES
+        "html/style.css"
+        "html/prov.html"
+        "html/ctrl.html"
+        "html/ctrl.js"
+)
