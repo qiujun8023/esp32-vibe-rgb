@@ -23,7 +23,6 @@
 
 static const char* TAG = "wifi_ctrl";
 
-// ── 嵌入页面 ──────────────────────────────────────────
 extern const char     html_ctrl_html_start[] asm("_binary_ctrl_html_start");
 extern const char     html_ctrl_js_start[] asm("_binary_ctrl_js_start");
 extern const char     html_style_css_start[] asm("_binary_style_css_start");
@@ -38,15 +37,16 @@ static EventGroupHandle_t s_wifi_evt;
 static httpd_handle_t     s_server;
 static int                s_ws_fd = -1;
 
-// ── WebSocket 推送任务 ────────────────────────────────
+/**
+ * WebSocket 推送任务
+ */
 static void push_task(void* arg) {
-    (void)arg;
     TickType_t last    = xTaskGetTickCount();
     int        fps_cnt = 0, fps_val = 0;
     TickType_t fps_ts = xTaskGetTickCount();
 
     while (1) {
-        vTaskDelayUntil(&last, pdMS_TO_TICKS(33));  // ~30fps
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(50));
         if (s_ws_fd < 0) continue;
 
         mic_data_t d;
@@ -59,40 +59,43 @@ static void push_task(void* arg) {
             fps_ts  = xTaskGetTickCount();
         }
 
-        // 帧缓冲 → hex 字符串
         static uint8_t fb[LED_MAX_COUNT * 3];
         int            fblen = 0;
         led_get_fb(fb, &fblen);
 
-        // JSON: {"pixels":"RRGGBB...","fps":30,"volume":0.5,"beat":0.8,"bands":[...]}
-        static char msg[LED_MAX_COUNT * 6 + 256];
+        static char msg[LED_MAX_COUNT * 6 + 512];
         int         pos = 0;
         pos += snprintf(msg + pos, sizeof(msg) - pos, "{\"pixels\":\"");
-        for (int i = 0; i < fblen; i++) pos += snprintf(msg + pos, sizeof(msg) - pos, "%02x", fb[i]);
+        for (int i = 0; i < fblen; i++) {
+            pos += snprintf(msg + pos, sizeof(msg) - pos, "%02x", fb[i]);
+        }
         pos += snprintf(msg + pos, sizeof(msg) - pos, "\",\"fps\":%d,\"volume\":%.2f,\"beat\":%.2f,\"bands\":[",
                         fps_val, d.volume, d.beat);
-        for (int b = 0; b < MIC_BANDS; b++)
-            pos += snprintf(msg + pos, sizeof(msg) - pos, "%.2f%s", d.bands[b], b < MIC_BANDS - 1 ? "," : "");
+        for (int b = 0; b < MIC_BANDS; b++) {
+            pos += snprintf(msg + pos, sizeof(msg) - pos, "%.2f%s", d.bands[b], (b < MIC_BANDS - 1) ? "," : "");
+        }
         pos += snprintf(msg + pos, sizeof(msg) - pos, "]}");
 
         httpd_ws_frame_t pkt = {
             .type    = HTTPD_WS_TYPE_TEXT,
             .payload = (uint8_t*)msg,
-            .len     = pos,
+            .len     = (size_t)pos,
         };
         httpd_ws_send_frame_async(s_server, s_ws_fd, &pkt);
     }
 }
 
-// ── 设置 JSON 序列化 / 反序列化 ──────────────────────
+/**
+ * 将配置导出为 JSON
+ */
 static char* settings_to_json(void) {
+    settings_lock();
     settings_t* s    = settings_get();
     cJSON*      root = cJSON_CreateObject();
 
     cJSON_AddStringToObject(root, "ssid", s->ssid);
     cJSON_AddNumberToObject(root, "ip_mode", s->ip_mode);
 
-    // IP 地址转为字符串
     struct in_addr a;
     char           ip_s[20];
     a.s_addr = s->s_ip;
@@ -111,6 +114,7 @@ static char* settings_to_json(void) {
     cJSON_AddNumberToObject(root, "led_h", s->led_h);
     cJSON_AddNumberToObject(root, "led_serpentine", s->led_serpentine);
     cJSON_AddNumberToObject(root, "led_start", s->led_start);
+    cJSON_AddNumberToObject(root, "led_rotation", s->led_rotation);
     cJSON_AddNumberToObject(root, "brightness", s->brightness);
 
     cJSON_AddNumberToObject(root, "mic_sck", s->mic_sck);
@@ -132,14 +136,18 @@ static char* settings_to_json(void) {
 
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
+    settings_unlock();
     return str;
 }
 
-// 返回哪些字段变更需要重启
+/**
+ * 从 JSON 解析配置
+ */
 static bool settings_from_json(const char* body, bool* need_restart) {
     cJSON* root = cJSON_Parse(body);
     if (!root) return false;
 
+    settings_lock();
     settings_t* s = settings_get();
     *need_restart = false;
 
@@ -153,11 +161,6 @@ static bool settings_from_json(const char* body, bool* need_restart) {
         cJSON* it = cJSON_GetObjectItem(root, key);                      \
         if (it && cJSON_IsNumber(it)) s->field = (float)it->valuedouble; \
     }
-#define GET_STR(key, field)                                                                 \
-    {                                                                                       \
-        cJSON* it = cJSON_GetObjectItem(root, key);                                         \
-        if (it && cJSON_IsString(it)) strlcpy(s->field, it->valuestring, sizeof(s->field)); \
-    }
 #define WATCH_INT(key, field)                                                     \
     {                                                                             \
         cJSON* it = cJSON_GetObjectItem(root, key);                               \
@@ -166,16 +169,7 @@ static bool settings_from_json(const char* body, bool* need_restart) {
             s->field = (typeof(s->field))it->valueint;                            \
         }                                                                         \
     }
-#define WATCH_STR(key, field)                                            \
-    {                                                                    \
-        cJSON* it = cJSON_GetObjectItem(root, key);                      \
-        if (it && cJSON_IsString(it)) {                                  \
-            if (strcmp(s->field, it->valuestring)) *need_restart = true; \
-            strlcpy(s->field, it->valuestring, sizeof(s->field));        \
-        }                                                                \
-    }
 
-    // WiFi 变更需要重启（只更新非空值）
     cJSON* ssid_it = cJSON_GetObjectItem(root, "ssid");
     if (ssid_it && cJSON_IsString(ssid_it) && ssid_it->valuestring[0]) {
         if (strcmp(s->ssid, ssid_it->valuestring)) *need_restart = true;
@@ -186,8 +180,18 @@ static bool settings_from_json(const char* body, bool* need_restart) {
         if (strcmp(s->pass, pass_it->valuestring)) *need_restart = true;
         strlcpy(s->pass, pass_it->valuestring, sizeof(s->pass));
     }
+
+    WATCH_INT("led_gpio", led_gpio);
+    WATCH_INT("led_w", led_w);
+    WATCH_INT("led_h", led_h);
+    WATCH_INT("led_serpentine", led_serpentine);
+    WATCH_INT("led_start", led_start);
+    GET_INT("led_rotation", led_rotation);
+    WATCH_INT("mic_sck", mic_sck);
+    WATCH_INT("mic_ws", mic_ws);
+    WATCH_INT("mic_din", mic_din);
     GET_INT("ip_mode", ip_mode);
-    // 静态 IP 字段
+
     cJSON* it;
     if ((it = cJSON_GetObjectItem(root, "s_ip")) && cJSON_IsString(it)) s->s_ip = inet_addr(it->valuestring);
     if ((it = cJSON_GetObjectItem(root, "s_mask")) && cJSON_IsString(it)) s->s_mask = inet_addr(it->valuestring);
@@ -195,17 +199,6 @@ static bool settings_from_json(const char* body, bool* need_restart) {
     if ((it = cJSON_GetObjectItem(root, "s_dns1")) && cJSON_IsString(it)) s->s_dns1 = inet_addr(it->valuestring);
     if ((it = cJSON_GetObjectItem(root, "s_dns2")) && cJSON_IsString(it)) s->s_dns2 = inet_addr(it->valuestring);
 
-    // GPIO 变更需要重启
-    WATCH_INT("led_gpio", led_gpio);
-    WATCH_INT("led_w", led_w);
-    WATCH_INT("led_h", led_h);
-    WATCH_INT("mic_sck", mic_sck);
-    WATCH_INT("mic_ws", mic_ws);
-    WATCH_INT("mic_din", mic_din);
-
-    // 运行时可更新
-    GET_INT("led_serpentine", led_serpentine);
-    GET_INT("led_start", led_start);
     GET_INT("brightness", brightness);
     GET_INT("agc_mode", agc_mode);
     GET_FLT("gain", gain);
@@ -220,11 +213,11 @@ static bool settings_from_json(const char* body, bool* need_restart) {
     GET_INT("custom3", custom3);
     GET_INT("freq_dir", freq_dir);
 
+    settings_unlock();
     cJSON_Delete(root);
     return true;
 }
 
-// ── HTTP 处理器 ───────────────────────────────────────
 static esp_err_t handle_root(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, html_ctrl_html_start, ctrl_html_length);
@@ -237,130 +230,105 @@ static esp_err_t handle_css(httpd_req_t* req) {
     return ESP_OK;
 }
 
-static esp_err_t handle_ctrl_js(httpd_req_t* req) {
+static esp_err_t handle_js(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/javascript; charset=utf-8");
     httpd_resp_send(req, html_ctrl_js_start, ctrl_js_length);
     return ESP_OK;
 }
 
+/**
+ * WebSocket 处理器
+ */
 static esp_err_t handle_ws(httpd_req_t* req) {
     if (req->method == HTTP_GET) {
         s_ws_fd = httpd_req_to_sockfd(req);
-        ESP_LOGI(TAG, "ws client fd=%d", s_ws_fd);
-        // 推送当前设置
+        ESP_LOGI(TAG, "websocket connected, fd: %d", s_ws_fd);
+
         char*            json = settings_to_json();
-        httpd_ws_frame_t pkt  = {
-             .type    = HTTPD_WS_TYPE_TEXT,
-             .payload = (uint8_t*)json,
-             .len     = strlen(json),
-        };
+        httpd_ws_frame_t pkt  = {.type = HTTPD_WS_TYPE_TEXT, .payload = (uint8_t*)json, .len = strlen(json)};
         httpd_ws_send_frame(req, &pkt);
         free(json);
         return ESP_OK;
     }
 
-    httpd_ws_frame_t pkt;
-    uint8_t          buf[512] = {0};
-    memset(&pkt, 0, sizeof(pkt));
-    pkt.payload   = buf;
-    pkt.type      = HTTPD_WS_TYPE_TEXT;
-    esp_err_t ret = httpd_ws_recv_frame(req, &pkt, sizeof(buf) - 1);
-    if (ret != ESP_OK) {
+    uint8_t          buf[1024] = {0};
+    httpd_ws_frame_t pkt       = {.payload = buf, .type = HTTPD_WS_TYPE_TEXT};
+    if (httpd_ws_recv_frame(req, &pkt, sizeof(buf) - 1) != ESP_OK) {
         s_ws_fd = -1;
-        return ret;
+        return ESP_FAIL;
     }
     buf[pkt.len] = '\0';
 
-    // 检查是否是 LED 顺序测试命令
-    cJSON* test_led = cJSON_GetObjectItem(cJSON_Parse((char*)buf), "test_led");
-    if (test_led && cJSON_IsTrue(test_led)) {
-        effects_pause();  // 暂停效果任务
-        // LED 顺序测试：按索引依次点亮每个 LED
+    cJSON* root = cJSON_Parse((char*)buf);
+    if (!root) return ESP_FAIL;
+
+    if (cJSON_GetObjectItem(root, "test_led")) {
+        effects_pause();
         int count = led_count();
         for (int i = 0; i < count; i++) {
             led_clear();
-            led_set_pixel_idx(i, 255, 0, 0);  // 红色，直接按索引
+            led_set_pixel_idx(i, 255, 0, 0);
             led_flush();
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(150));
         }
         led_clear();
         led_flush();
-        effects_resume();  // 恢复效果任务
-        cJSON_Delete(cJSON_Parse((char*)buf));
+        effects_resume();
+        cJSON_Delete(root);
         return ESP_OK;
     }
+    cJSON_Delete(root);
 
-    // 快速参数（不需要重启的）直接应用
-    bool restart;
+    bool restart = false;
     if (settings_from_json((char*)buf, &restart)) {
         settings_t* s = settings_get();
         led_apply_settings(s);
         mic_apply_settings(s);
         effects_set_mode(s->effect);
-        settings_save();  // 自动持久化
+        settings_save();
+        if (restart) {
+            ESP_LOGW(TAG, "critical settings changed, restarting");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+        }
     }
     return ESP_OK;
 }
 
-static esp_err_t handle_get_settings(httpd_req_t* req) {
-    char* json = settings_to_json();
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json);
-    free(json);
-    return ESP_OK;
-}
-
-static esp_err_t handle_save_settings(httpd_req_t* req) {
-    char body[1024] = {0};
-    int  len        = httpd_req_recv(req, body, sizeof(body) - 1);
+static esp_err_t handle_save(httpd_req_t* req) {
+    char buf[1024] = {0};
+    int  len       = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (len <= 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty request body");
         return ESP_FAIL;
     }
 
-    bool restart;
-    bool ok = settings_from_json(body, &restart);
-    if (ok) {
-        settings_save();
-        settings_t* s = settings_get();
-        led_apply_settings(s);
-        mic_apply_settings(s);
-        effects_set_mode(s->effect);
+    bool restart = false;
+    if (!settings_from_json(buf, &restart)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid json format");
+        return ESP_FAIL;
     }
 
-    cJSON* resp = cJSON_CreateObject();
-    cJSON_AddBoolToObject(resp, "ok", ok);
-    cJSON_AddBoolToObject(resp, "restart_required", restart);
-    char* json = cJSON_PrintUnformatted(resp);
-    cJSON_Delete(resp);
+    settings_save();
+    settings_t* s = settings_get();
+    led_apply_settings(s);
+    mic_apply_settings(s);
+    effects_set_mode(s->effect);
+
+    cJSON* r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "ok", true);
+    cJSON_AddBoolToObject(r, "restart_required", restart);
+    char* json = cJSON_PrintUnformatted(r);
+    cJSON_Delete(r);
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
     free(json);
 
     if (restart) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(1000));
         esp_restart();
     }
-    return ESP_OK;
-}
-
-static esp_err_t handle_reset_wifi(httpd_req_t* req) {
-    settings_t* s = settings_get();
-    s->ssid[0]    = '\0';
-    s->pass[0]    = '\0';
-    settings_save();
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"ok\":true}");
-    vTaskDelay(pdMS_TO_TICKS(500));
-    esp_restart();
-    return ESP_OK;
-}
-
-static esp_err_t handle_factory_reset(httpd_req_t* req) {
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"ok\":true}");
-    vTaskDelay(pdMS_TO_TICKS(500));
-    settings_factory_reset();  // 内部重启
     return ESP_OK;
 }
 
@@ -372,27 +340,40 @@ static esp_err_t handle_reboot(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// ── WiFi 事件 ─────────────────────────────────────────
-static int s_retry = 0;
-#define MAX_RETRY 5
+static esp_err_t handle_reset_wifi(httpd_req_t* req) {
+    settings_reset_wifi();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
 
-static void wifi_handler(void* arg, esp_event_base_t base, int32_t id, void* data) {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry++ < MAX_RETRY) {
+static esp_err_t handle_factory_reset(httpd_req_t* req) {
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    settings_factory_reset();
+    return ESP_OK;
+}
+
+static int  s_retry = 0;
+static void wifi_handler(void* arg, esp_event_base_t b, int32_t id, void* data) {
+    if (b == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_retry++ < 5) {
             esp_wifi_connect();
-            ESP_LOGW(TAG, "reconnect #%d", s_retry);
+            ESP_LOGW(TAG, "wifi disconnected, retrying %d/5", s_retry);
         } else {
             xEventGroupSetBits(s_wifi_evt, WIFI_FAIL_BIT);
         }
-    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+    } else if (b == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* e = (ip_event_got_ip_t*)data;
-        ESP_LOGI(TAG, "IP: " IPSTR, IP2STR(&e->ip_info.ip));
+        ESP_LOGI(TAG, "wifi connected, ip: " IPSTR, IP2STR(&e->ip_info.ip));
         s_retry = 0;
         xEventGroupSetBits(s_wifi_evt, WIFI_CONNECTED_BIT);
     }
 }
 
-// ── 公共入口 ─────────────────────────────────────────
 void wifi_ctrl_init(void) {
     s_wifi_evt    = xEventGroupCreate();
     settings_t* s = settings_get();
@@ -401,75 +382,65 @@ void wifi_ctrl_init(void) {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_t* sta_if = esp_netif_create_default_wifi_sta();
 
+    esp_netif_set_hostname(sta_if, DEVICE_NAME);
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    esp_event_handler_instance_t h1, h2;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_handler, NULL, &h1));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_handler, NULL, &h2));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_handler, NULL, NULL));
 
     wifi_config_t sta_cfg = {0};
     strlcpy((char*)sta_cfg.sta.ssid, s->ssid, sizeof(sta_cfg.sta.ssid));
     strlcpy((char*)sta_cfg.sta.password, s->pass, sizeof(sta_cfg.sta.password));
-    sta_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
 
-    // 静态 IP
     if (s->ip_mode == 1 && s->s_ip) {
-        ESP_ERROR_CHECK(esp_netif_dhcpc_stop(sta_if));
-        esp_netif_ip_info_t ip_info = {
-            .ip.addr      = s->s_ip,
-            .netmask.addr = s->s_mask,
-            .gw.addr      = s->s_gw,
-        };
-        ESP_ERROR_CHECK(esp_netif_set_ip_info(sta_if, &ip_info));
-        if (s->s_dns1) {
-            esp_netif_dns_info_t dns = {.ip.u_addr.ip4.addr = s->s_dns1, .ip.type = IPADDR_TYPE_V4};
-            esp_netif_set_dns_info(sta_if, ESP_NETIF_DNS_MAIN, &dns);
-        }
+        esp_netif_dhcpc_stop(sta_if);
+        esp_netif_ip_info_t info = {.ip.addr = s->s_ip, .netmask.addr = s->s_mask, .gw.addr = s->s_gw};
+        esp_netif_set_ip_info(sta_if, &info);
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     esp_wifi_connect();
 
-    ESP_LOGI(TAG, "connecting '%s'...", s->ssid);
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, false, false,
-                                           pdMS_TO_TICKS(WIFI_STA_TIMEOUT_MS));
+    ESP_LOGI(TAG, "connecting to wifi: %s", s->ssid);
+    EventBits_t bits =
+        xEventGroupWaitBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, false, false, pdMS_TO_TICKS(15000));
 
     if (!(bits & WIFI_CONNECTED_BIT)) {
-        ESP_LOGE(TAG, "connect failed, clearing creds");
-        s->ssid[0] = '\0';
-        s->pass[0] = '\0';
-        settings_save();
-        vTaskDelay(pdMS_TO_TICKS(200));
+        ESP_LOGE(TAG, "wifi connection failed, clearing credentials");
+        settings_reset_wifi();
+        vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 
-    // HTTP + WebSocket 服务器
     httpd_config_t hcfg   = HTTPD_DEFAULT_CONFIG();
-    hcfg.lru_purge_enable = true;
     hcfg.max_uri_handlers = 16;
     hcfg.uri_match_fn     = httpd_uri_match_wildcard;
-    ESP_ERROR_CHECK(httpd_start(&s_server, &hcfg));
+    if (httpd_start(&s_server, &hcfg) == ESP_OK) {
+#define REG(u, m, h, w)                                      \
+    {                                                        \
+        httpd_uri_t _u = {.uri                      = u,     \
+                          .method                   = m,     \
+                          .handler                  = h,     \
+                          .user_ctx                 = NULL,  \
+                          .is_websocket             = w,     \
+                          .handle_ws_control_frames = false, \
+                          .supported_subprotocol    = NULL};    \
+        httpd_register_uri_handler(s_server, &_u);           \
+    }
+        REG("/", HTTP_GET, handle_root, false);
+        REG("/style.css", HTTP_GET, handle_css, false);
+        REG("/ctrl.js", HTTP_GET, handle_js, false);
+        REG("/ws", HTTP_GET, handle_ws, true);
+        REG("/api/settings", HTTP_POST, handle_save, false);
+        REG("/api/reboot", HTTP_POST, handle_reboot, false);
+        REG("/api/reset_wifi", HTTP_POST, handle_reset_wifi, false);
+        REG("/api/factory", HTTP_POST, handle_factory_reset, false);
+    }
 
-#define REG(uri, method, handler, ws)                                  \
-    do {                                                               \
-        httpd_uri_t u = {uri, method, handler, NULL, ws, false, NULL}; \
-        httpd_register_uri_handler(s_server, &u);                      \
-    } while (0)
-
-    REG("/", HTTP_GET, handle_root, false);
-    REG("/style.css", HTTP_GET, handle_css, false);
-    REG("/ctrl.js", HTTP_GET, handle_ctrl_js, false);
-    REG("/ws", HTTP_GET, handle_ws, true);
-    REG("/api/settings", HTTP_GET, handle_get_settings, false);
-    REG("/api/settings", HTTP_POST, handle_save_settings, false);
-    REG("/api/reset_wifi", HTTP_POST, handle_reset_wifi, false);
-    REG("/api/factory", HTTP_POST, handle_factory_reset, false);
-    REG("/api/reboot", HTTP_POST, handle_reboot, false);
-
-    xTaskCreate(push_task, "ws_push", 8192, NULL, 4, NULL);
-    ESP_LOGI(TAG, "server ready");
+    xTaskCreate(push_task, "ws_push", 4096, NULL, 4, NULL);
+    ESP_LOGI(TAG, "http server started");
 }

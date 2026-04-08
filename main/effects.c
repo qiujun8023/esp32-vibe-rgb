@@ -1,5 +1,7 @@
 #include "effects.h"
 
+#include <esp_log.h>
+#include <esp_random.h>
 #include <esp_timer.h>
 #include <math.h>
 #include <stdlib.h>
@@ -8,90 +10,96 @@
 #include "led.h"
 #include "palettes.h"
 
+static const char*   TAG      = "effects";
 static volatile bool s_paused = false;
 
-// ── 效果元数据（与 ctrl.js 的 EFFECTS 数组顺序一致）───
+// 效果元数据（需与前端 ctrl.js 的 EFFECTS 数组对齐）
 const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
-    /* 0*/ {"Spectrum", "色彩模式", "峰值点", "镜像"},
-    /* 1*/ {"Waterfall", "饱和度", "消退速率", ""},
-    /* 2*/ {"Gravimeter", "保持时间", "峰值亮度", ""},
-    /* 3*/ {"Funky Plank", "下落速度", "间距", ""},
-    /* 4*/ {"Scroll", "滚动方向", "", ""},
-    /* 5*/ {"CenterBars", "色彩模式", "", ""},
-    /* 6*/ {"GravFreq", "重力强度", "灵敏度", ""},
-    /* 7*/ {"Super Freq", "线条数量", "", ""},
-    /* 8*/ {"Ripple", "扩散速度", "最大涟漪", ""},
-    /* 9*/ {"Juggles", "球数量", "消退速率", ""},
-    /*10*/ {"Blurz", "色块数量", "模糊度", ""},
-    /*11*/ {"DJ Light", "扫描速度", "闪光时长", ""},
-    /*12*/ {"Ripplepeak", "扩散速度", "触发阈值", ""},
-    /*13*/ {"Freqwave", "波动幅度", "", ""},
-    /*14*/ {"Freqmap", "饱和度", "", ""},
-    /*15*/ {"Noisemove", "噪声缩放", "亮度调制", ""},
-    /*16*/ {"Rocktaves", "八度数量", "", ""},
-    /*17*/ {"Energy", "响应速度", "最低亮度", "径向模式"},
-    /*18*/ {"Plasma", "复杂度", "音频调制", ""},
-    /*19*/ {"Swirl", "旋转速度", "音频调制", ""},
-    /*20*/ {"Waverly", "波动数量", "振幅", ""},
-    /*21*/ {"Fire", "冷却速率", "点燃率", "音频调制"},
+    {"Spectrum", "色彩模式", "显示峰值", "开启镜像"},
+    {"Waterfall", "色彩饱和度", "消退速率", ""},
+    {"Gravimeter", "停留时间", "峰值亮度", ""},
+    {"Funky Plank", "下降速率", "间距密度", ""},
+    {"Scroll", "滚动方向", "", ""},
+    {"CenterBars", "色彩分布", "", ""},
+    {"GravFreq", "重力强度", "响应灵敏度", ""},
+    {"Super Freq", "线条数量", "", ""},
+    {"Ripple", "扩散速率", "最大涟漪数", ""},
+    {"Juggles", "球体数量", "轨迹消退", ""},
+    {"Blurz", "色块数量", "模糊强度", ""},
+    {"DJ Light", "扫描频率", "闪烁时长", ""},
+    {"Ripplepeak", "扩散速率", "触发门限", ""},
+    {"Freqwave", "波动幅度", "", ""},
+    {"Freqmap", "色彩饱和度", "", ""},
+    {"Noisemove", "噪声缩放", "亮度调节", ""},
+    {"Rocktaves", "八度数量", "", ""},
+    {"Energy", "动态响应", "底噪亮度", "径向模式"},
+    {"Plasma", "细节复杂度", "音频调制", ""},
+    {"Swirl", "旋转速度", "音频调制", ""},
+    {"Waverly", "波动数量", "波动振幅", ""},
+    {"Fire", "冷却速率", "点燃几率", "音频调制"},
 };
 
-// ── 全局效果状态（切换时清零）───────────────────────
 #define MAX_RIPPLES 5
 #define MAX_BALLS   8
 #define MAX_BLOBS   8
 #define W           led_width()
 #define H           led_height()
 
+// 效果内部运行状态机
 typedef struct {
-    // 通用
-    float    phase;
-    float    hue_off;
-    uint32_t frame;
+    float    phase;    // 时间相位偏移
+    float    hue_off;  // 色调偏移
+    uint32_t frame;    // 帧计数器
 
-    // Waterfall / Scroll
-    uint8_t scroll_buf[8][8][3];
-    int     scroll_col;
+    // Waterfall / Scroll 缓冲区
+    uint8_t scroll_buf[LED_MAX_COUNT][3];
 
-    // Gravimeter / Funky Plank
-    float grav_pos[8];
-    float grav_vel[8];
-    int   peak_hold[8];
-    float plank_y[8];
+    // Gravimeter / Funky Plank 状态
+    float grav_pos[16];
+    float grav_vel[16];
+    int   peak_hold[16];
+    float plank_y[16];
 
-    // Ripple / Ripplepeak
+    // Ripple / RipplePeak 状态
     struct {
         float   x, y, r, age;
         uint8_t ri, gi, bi;
     } rip[MAX_RIPPLES];
     int rip_n;
 
-    // Juggles
+    // Juggles 弹球状态
     float   ball_x[MAX_BALLS], ball_y[MAX_BALLS];
     float   ball_vx[MAX_BALLS], ball_vy[MAX_BALLS];
     uint8_t ball_r[MAX_BALLS], ball_g[MAX_BALLS], ball_b[MAX_BALLS];
 
-    // Blurz
+    // Blurz 色块状态
     struct {
         float   x, y, bright;
         uint8_t ri, gi, bi;
     } blob[MAX_BLOBS];
 
-    // DJ Light
+    // DJ Light 状态
     int dj_col, dj_row, dj_cnt;
 
-    // Fire
-    uint8_t fire[10][8];  // rows H+2
+    // Fire 火焰缓冲区 (增加预留空间防止越界)
+    uint8_t fire[LED_MAX_COUNT + 64];
 
-    // Noise
+    // Noise 噪声生成表
     uint8_t perm[256];
     bool    noise_init;
+
+    // 效果内部状态变量
+    float last_beat;
+    float last_peak;
+    bool  juggles_init;
 } fx_state_t;
 
 static fx_state_t s_st;
 static uint8_t    s_mode = 0;
 
-// ── 噪声辅助 ─────────────────────────────────────────
+/**
+ * 2D 噪声函数
+ */
 static float noise2d(float x, float y) {
     int   ix = (int)floorf(x) & 255;
     int   iy = (int)floorf(y) & 255;
@@ -110,46 +118,69 @@ static float noise2d(float x, float y) {
 
 static void noise_setup(void) {
     for (int i = 0; i < 256; i++) s_st.perm[i] = i;
-    uint32_t seed = 54321;
     for (int i = 255; i > 0; i--) {
-        seed         = seed * 1664525 + 1013904223;
-        int     j    = (seed >> 16) % (i + 1);
-        uint8_t t    = s_st.perm[i];
+        uint32_t r   = esp_random();
+        int      j   = r % (i + 1);
+        uint8_t  t   = s_st.perm[i];
         s_st.perm[i] = s_st.perm[j];
         s_st.perm[j] = t;
     }
     s_st.noise_init = true;
 }
 
-// ── 频谱绘制辅助（freq_dir 感知）──────────────────────
-// 在矩阵上绘制一根柱（band=列/行，height=0-H，c=颜色）
+/**
+ * 频谱绘制辅助函数
+ */
 static void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
-    int w = W, h = H;
+    int h = H;
     for (int i = 0; i < h; i++) {
         if (s->freq_dir == 0) {
-            // 列=频段，行=幅度，y=0 在底部
+            // 列为频段，y=0 为底部
             led_set_pixel(band, i, i < height ? c.r : 2, i < height ? c.g : 2, i < height ? c.b : 4);
         } else {
-            // 行=频段，列=幅度，x=0 在左
+            // 行为频段，x=0 为左侧
             led_set_pixel(i, band, i < height ? c.r : 2, i < height ? c.g : 2, i < height ? c.b : 4);
         }
     }
-    (void)w;
 }
 
-// ── 效果实现 ─────────────────────────────────────────
-
-// 0: Spectrum
+// 0: Spectrum - 经典频谱
+// custom1=0: 按频带着色（每列固定色）
+// custom1>0: 按高度渐变着色（音乐播放器风格，底部调色板低端→顶部高端）
+// custom2>64: 显示峰值点
+// custom3>128: 镜像模式
 static void fx_spectrum(const mic_data_t* d, const settings_t* s) {
-    int h = H;
-    for (int b = 0; b < MIC_BANDS; b++) {
+    int  h      = H;
+    bool mirror = s->custom3 > 128;
+    int  bands  = mirror ? MIC_BANDS / 2 : MIC_BANDS;
+
+    for (int b = 0; b < bands; b++) {
         int bar = (int)(d->bands[b] * h + 0.5f);
         if (bar > h) bar = h;
-        uint8_t pos = (s->custom1 == 0) ? (b * 255 / (MIC_BANDS - 1)) : (uint8_t)(d->bands[b] * 255);
-        rgb_t   c   = palette_color(s->palette, pos);
-        draw_bar(b, bar, c, s);
 
-        // 峰值点
+        if (s->custom1 == 0) {
+            // 经典模式：整条柱子使用频带对应的调色板颜色
+            uint8_t pos = b * 255 / (MIC_BANDS - 1);
+            rgb_t   c   = palette_color(s->palette, pos);
+            draw_bar(b, bar, c, s);
+        } else {
+            // 音乐播放器模式：颜色随高度变化（底部→顶部 = 调色板低→高）
+            for (int y = 0; y < h; y++) {
+                rgb_t c;
+                if (y < bar) {
+                    uint8_t pos = (h > 1) ? (uint8_t)(y * 255 / (h - 1)) : 255;
+                    c           = palette_color(s->palette, pos);
+                } else {
+                    c = (rgb_t){2, 2, 4};
+                }
+                if (s->freq_dir == 0)
+                    led_set_pixel(b, y, c.r, c.g, c.b);
+                else
+                    led_set_pixel(y, b, c.r, c.g, c.b);
+            }
+        }
+
+        // 峰值保持
         if (s->custom2 > 64) {
             if (bar > s_st.peak_hold[b]) {
                 s_st.peak_hold[b] = bar;
@@ -168,64 +199,55 @@ static void fx_spectrum(const mic_data_t* d, const settings_t* s) {
             }
         }
     }
-    // 镜像
-    if (s->custom3 > 128) {
+
+    // 镜像：将左半侧复制到右半侧
+    if (mirror && s->freq_dir == 0) {
         for (int b = 0; b < MIC_BANDS / 2; b++) {
-            uint8_t r1, g1, b1, r2, g2, b2;
-            if (s->freq_dir == 0) {
-                led_get_pixel(b, 0, &r1, &g1, &b1);
-                led_get_pixel(MIC_BANDS - 1 - b, 0, &r2, &g2, &b2);
-                for (int y = 0; y < H; y++) {
-                    led_get_pixel(b, y, &r1, &g1, &b1);
-                    led_set_pixel(MIC_BANDS - 1 - b, y, r1, g1, b1);
-                }
+            uint8_t r, g, bl;
+            for (int y = 0; y < H; y++) {
+                led_get_pixel(b, y, &r, &g, &bl);
+                led_set_pixel(MIC_BANDS - 1 - b, y, r, g, bl);
             }
         }
     }
 }
 
-// 1: Waterfall
+// 1: Waterfall - 瀑布流
 static void fx_waterfall(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
-    // 向下移动一行
-    for (int y = 0; y < h - 1; y++)
+    if (w * h > LED_MAX_COUNT) return;
+
+    for (int y = 0; y < h - 1; y++) {
         for (int x = 0; x < w; x++) {
-            led_set_pixel(x, y, s_st.scroll_buf[y + 1][x][0], s_st.scroll_buf[y + 1][x][1],
-                          s_st.scroll_buf[y + 1][x][2]);
-            s_st.scroll_buf[y][x][0] = s_st.scroll_buf[y + 1][x][0];
-            s_st.scroll_buf[y][x][1] = s_st.scroll_buf[y + 1][x][1];
-            s_st.scroll_buf[y][x][2] = s_st.scroll_buf[y + 1][x][2];
+            int dst                 = y * w + x;
+            int src                 = (y + 1) * w + x;
+            s_st.scroll_buf[dst][0] = s_st.scroll_buf[src][0];
+            s_st.scroll_buf[dst][1] = s_st.scroll_buf[src][1];
+            s_st.scroll_buf[dst][2] = s_st.scroll_buf[src][2];
+            led_set_pixel(x, y, s_st.scroll_buf[dst][0], s_st.scroll_buf[dst][1], s_st.scroll_buf[dst][2]);
         }
-    // 顶行写入当前频谱
-    for (int b = 0; b < MIC_BANDS && b < w; b++) {
-        uint8_t pos = (uint8_t)(d->bands[b] * 255);
-        rgb_t   c   = palette_color(s->palette, pos);
-        uint8_t sat = 200 + s->custom1 / 18;
-        // 用频段幅度控制亮度
-        uint8_t v = (uint8_t)(d->bands[b] * 255);
-        c         = _hsv2rgb((uint16_t)(b * 360 / MIC_BANDS), sat, v);
-        led_set_pixel(b, h - 1, c.r, c.g, c.b);
-        s_st.scroll_buf[h - 1][b][0] = c.r;
-        s_st.scroll_buf[h - 1][b][1] = c.g;
-        s_st.scroll_buf[h - 1][b][2] = c.b;
     }
-    // 消退（fade）
+
+    uint8_t sat = 200 + s->custom1 / 18;
+    for (int b = 0; b < MIC_BANDS && b < w; b++) {
+        uint8_t v               = (uint8_t)(d->bands[b] * 255);
+        rgb_t   c               = _hsv2rgb((uint16_t)(b * 360 / MIC_BANDS), sat, v);
+        int     idx             = (h - 1) * w + b;
+        s_st.scroll_buf[idx][0] = c.r;
+        s_st.scroll_buf[idx][1] = c.g;
+        s_st.scroll_buf[idx][2] = c.b;
+        led_set_pixel(b, h - 1, c.r, c.g, c.b);
+    }
+
     uint8_t fade = 2 + s->custom2 / 32;
-    for (int y = 0; y < h - 1; y++)
-        for (int x = 0; x < w; x++) {
-            uint8_t r                = s_st.scroll_buf[y][x][0];
-            uint8_t g                = s_st.scroll_buf[y][x][1];
-            uint8_t b2               = s_st.scroll_buf[y][x][2];
-            r                        = r > fade ? r - fade : 0;
-            g                        = g > fade ? g - fade : 0;
-            b2                       = b2 > fade ? b2 - fade : 0;
-            s_st.scroll_buf[y][x][0] = r;
-            s_st.scroll_buf[y][x][1] = g;
-            s_st.scroll_buf[y][x][2] = b2;
-        }
+    for (int i = 0; i < w * (h - 1); i++) {
+        s_st.scroll_buf[i][0] = s_st.scroll_buf[i][0] > fade ? s_st.scroll_buf[i][0] - fade : 0;
+        s_st.scroll_buf[i][1] = s_st.scroll_buf[i][1] > fade ? s_st.scroll_buf[i][1] - fade : 0;
+        s_st.scroll_buf[i][2] = s_st.scroll_buf[i][2] > fade ? s_st.scroll_buf[i][2] - fade : 0;
+    }
 }
 
-// 2: Gravimeter
+// 2: Gravimeter - 重力频谱
 static void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
     int   h       = H;
     float gravity = 0.15f + s->speed / 512.0f;
@@ -234,7 +256,7 @@ static void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
         if (target > s_st.grav_pos[b]) {
             s_st.grav_pos[b]  = target;
             s_st.grav_vel[b]  = 0;
-            s_st.peak_hold[b] = s->custom1 / 4 + 8;  // hold frames
+            s_st.peak_hold[b] = s->custom1 / 4 + 8;
         } else {
             if (s_st.peak_hold[b] > 0)
                 s_st.peak_hold[b]--;
@@ -258,14 +280,6 @@ static void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
                 led_set_pixel(b, y, cp.r, cp.g, cp.b);
             else
                 led_set_pixel(y, b, cp.r, cp.g, cp.b);
-        }
-        // 峰值亮点
-        if (bar >= 0 && bar < h) {
-            uint8_t v = 128 + s->custom2 / 2;
-            if (s->freq_dir == 0)
-                led_set_pixel_hsv(b, bar, b * 30, 80, v);
-            else
-                led_set_pixel_hsv(bar, b, b * 30, 80, v);
         }
     }
 }
@@ -294,37 +308,31 @@ static void fx_funky_plank(const mic_data_t* d, const settings_t* s) {
 // 4: Scroll
 static void fx_scroll(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
-    // 向左移动一列
-    int dir = s->custom1 > 128;  // 0=右移 1=左移
+    int dir = s->custom1 > 128;
     if (!dir) {
         for (int x = 0; x < w - 1; x++)
             for (int y = 0; y < h; y++) {
-                uint8_t r, g, b2;
-                led_get_pixel(x + 1, y, &r, &g, &b2);
-                led_set_pixel(x, y, r, g, b2);
+                uint8_t r, g, b;
+                led_get_pixel(x + 1, y, &r, &g, &b);
+                led_set_pixel(x, y, r, g, b);
             }
     } else {
         for (int x = w - 1; x > 0; x--)
             for (int y = 0; y < h; y++) {
-                uint8_t r, g, b2;
-                led_get_pixel(x - 1, y, &r, &g, &b2);
-                led_set_pixel(x, y, r, g, b2);
+                uint8_t r, g, b;
+                led_get_pixel(x - 1, y, &r, &g, &b);
+                led_set_pixel(x, y, r, g, b);
             }
     }
-    // 新列写入频谱
     int nx = dir ? 0 : w - 1;
     for (int b = 0; b < MIC_BANDS && b < h; b++) {
         uint8_t v = (uint8_t)(d->bands[b] * 255);
         rgb_t   c = palette_color(s->palette, b * 255 / (MIC_BANDS - 1));
-        c.r       = c.r * v / 255;
-        c.g       = c.g * v / 255;
-        c.b       = c.b * v / 255;
-        led_set_pixel(nx, b, c.r, c.g, c.b);
+        led_set_pixel(nx, b, c.r * v / 255, c.g * v / 255, c.b * v / 255);
     }
-    (void)h;
 }
 
-// 5: CenterBars
+// 5: 中心柱
 static void fx_centerbars(const mic_data_t* d, const settings_t* s) {
     int h = H, half = h / 2;
     for (int b = 0; b < MIC_BANDS; b++) {
@@ -356,21 +364,18 @@ static void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
             s_st.grav_vel[b] += gravity;
             s_st.grav_pos[b] -= s_st.grav_vel[b];
         }
-        if (s_st.grav_pos[b] < 0) {
-            s_st.grav_pos[b] = 0;
-            s_st.grav_vel[b] = 0;
-        }
+        if (s_st.grav_pos[b] < 0) s_st.grav_pos[b] = 0;
         int y = (int)s_st.grav_pos[b];
         if (y >= h) y = h - 1;
         rgb_t c = palette_color(s->palette, b * 255 / (MIC_BANDS - 1));
-        led_set_pixel(b < w ? b : w - 1, y < h ? y : h - 1, c.r, c.g, c.b);
+        led_set_pixel(b < w ? b : w - 1, y, c.r, c.g, c.b);
     }
 }
 
 // 7: Super Freq
 static void fx_superfreq(const mic_data_t* d, const settings_t* s) {
     led_fade_all(40 + s->speed / 8);
-    int lines = 1 + s->custom1 / 43;  // 1-6 lines
+    int lines = 1 + s->custom1 / 43;
     int h = H, w = W;
     for (int b = 0; b < MIC_BANDS; b++) {
         uint8_t v = (uint8_t)(d->bands[b] * 255);
@@ -384,84 +389,69 @@ static void fx_superfreq(const mic_data_t* d, const settings_t* s) {
     s_st.phase += 0.5f + d->volume;
 }
 
-// 8: Ripple
+// 8: Ripple - 涟漪效果
 static void fx_ripple(const mic_data_t* d, const settings_t* s) {
     led_fade_all(30);
     float speed  = 0.1f + s->custom1 / 512.0f;
     int   maxrip = 1 + s->custom2 / 52;
-    if (maxrip > MAX_RIPPLES) maxrip = MAX_RIPPLES;
-
-    // 检测节拍触发
-    static float last_beat = 0;
-    if (d->beat > 0.5f && d->beat > last_beat + 0.3f) {
-        if (s_st.rip_n < maxrip) {
+    if (d->beat > 0.5f && d->beat > s_st.last_beat + 0.3f) {
+        if (s_st.rip_n < MAX_RIPPLES && s_st.rip_n < maxrip) {
             int i           = s_st.rip_n++;
             s_st.rip[i].x   = W / 2.0f;
             s_st.rip[i].y   = H / 2.0f;
             s_st.rip[i].r   = 0;
             s_st.rip[i].age = 0;
-            rgb_t c         = palette_color(s->palette, (uint8_t)(s_st.hue_off));
+            rgb_t c         = palette_color(s->palette, (uint8_t)s_st.hue_off);
             s_st.rip[i].ri  = c.r;
             s_st.rip[i].gi  = c.g;
             s_st.rip[i].bi  = c.b;
             s_st.hue_off += 40;
         }
     }
-    last_beat = d->beat;
-
-    // 扩散
+    s_st.last_beat = d->beat;
     for (int i = 0; i < s_st.rip_n;) {
         s_st.rip[i].r += speed;
-        s_st.rip[i].age += 1;
         float   rad = s_st.rip[i].r;
-        float   cx = s_st.rip[i].x, cy = s_st.rip[i].y;
         uint8_t brt = rad > 0 ? (uint8_t)(200.0f / (rad * 0.5f + 1)) : 200;
-
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) {
-                float dist = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                float dist =
+                    sqrtf((x - s_st.rip[i].x) * (x - s_st.rip[i].x) + (y - s_st.rip[i].y) * (y - s_st.rip[i].y));
                 if (fabsf(dist - rad) < 0.7f)
                     led_set_pixel(x, y, s_st.rip[i].ri * brt / 255, s_st.rip[i].gi * brt / 255,
                                   s_st.rip[i].bi * brt / 255);
             }
-
-        if (s_st.rip[i].r > sqrtf(W * W + H * H) / 2.0f) {
+        if (rad > sqrtf(W * W + H * H) / 2.0f)
             s_st.rip[i] = s_st.rip[--s_st.rip_n];
-        } else
+        else
             i++;
     }
 }
 
-// 9: Juggles
+// 9: Juggles - 弹球效果
 static void fx_juggles(const mic_data_t* d, const settings_t* s) {
     led_fade_all(20 + s->custom2 / 8);
     int balls = 1 + s->custom1 / 37;
     if (balls > MAX_BALLS) balls = MAX_BALLS;
-
-    // 初始化球
-    static bool jinit = false;
-    if (!jinit) {
+    if (!s_st.juggles_init) {
         for (int i = 0; i < MAX_BALLS; i++) {
-            s_st.ball_x[i]  = rand() % W;
-            s_st.ball_y[i]  = rand() % H;
-            s_st.ball_vx[i] = (rand() % 20 - 10) / 10.0f;
-            s_st.ball_vy[i] = (rand() % 20 - 10) / 10.0f;
+            s_st.ball_x[i]  = esp_random() % W;
+            s_st.ball_y[i]  = esp_random() % H;
+            s_st.ball_vx[i] = (esp_random() % 20 - 10) / 10.0f;
+            s_st.ball_vy[i] = (esp_random() % 20 - 10) / 10.0f;
             rgb_t c         = palette_color(s->palette, i * 255 / MAX_BALLS);
             s_st.ball_r[i]  = c.r;
             s_st.ball_g[i]  = c.g;
             s_st.ball_b[i]  = c.b;
         }
-        jinit = true;
+        s_st.juggles_init = true;
     }
-
-    float speed_mult = 0.5f + d->beat * 1.5f + s->speed / 256.0f;
+    float sm = 0.5f + d->beat * 1.5f + s->speed / 256.0f;
     for (int i = 0; i < balls; i++) {
-        s_st.ball_x[i] += s_st.ball_vx[i] * speed_mult;
-        s_st.ball_y[i] += s_st.ball_vy[i] * speed_mult;
+        s_st.ball_x[i] += s_st.ball_vx[i] * sm;
+        s_st.ball_y[i] += s_st.ball_vy[i] * sm;
         if (s_st.ball_x[i] < 0 || s_st.ball_x[i] >= W) s_st.ball_vx[i] *= -1;
         if (s_st.ball_y[i] < 0 || s_st.ball_y[i] >= H) s_st.ball_vy[i] *= -1;
-        s_st.ball_x[i] = s_st.ball_x[i] < 0 ? 0 : s_st.ball_x[i] >= W ? W - 1 : s_st.ball_x[i];
-        s_st.ball_y[i] = s_st.ball_y[i] < 0 ? 0 : s_st.ball_y[i] >= H ? H - 1 : s_st.ball_y[i];
         led_set_pixel((int)s_st.ball_x[i], (int)s_st.ball_y[i], s_st.ball_r[i], s_st.ball_g[i], s_st.ball_b[i]);
     }
 }
@@ -471,13 +461,12 @@ static void fx_blurz(const mic_data_t* d, const settings_t* s) {
     led_blur2d(80 + s->custom2 / 3);
     int blobs = 1 + s->custom1 / 37;
     if (blobs > MAX_BLOBS) blobs = MAX_BLOBS;
-
     if (d->beat > 0.4f) {
         for (int i = 0; i < blobs; i++) {
-            s_st.blob[i].x      = rand() % W;
-            s_st.blob[i].y      = rand() % H;
+            s_st.blob[i].x      = esp_random() % W;
+            s_st.blob[i].y      = esp_random() % H;
             s_st.blob[i].bright = 255;
-            rgb_t c             = palette_color(s->palette, rand() % 256);
+            rgb_t c             = palette_color(s->palette, esp_random() % 256);
             s_st.blob[i].ri     = c.r;
             s_st.blob[i].gi     = c.g;
             s_st.blob[i].bi     = c.b;
@@ -491,55 +480,48 @@ static void fx_blurz(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-// 11: DJ Light
+// 11: DJ 灯光
 static void fx_djlight(const mic_data_t* d, const settings_t* s) {
-    int flash_dur = 2 + s->custom2 / 64;
+    int dur = 2 + s->custom2 / 64;
     if (d->beat > 0.5f && s_st.dj_cnt == 0) {
-        s_st.dj_col = rand() % W;
-        s_st.dj_row = rand() % H;
-        s_st.dj_cnt = flash_dur;
+        s_st.dj_col = esp_random() % W;
+        s_st.dj_row = esp_random() % H;
+        s_st.dj_cnt = dur;
     }
-
     led_clear();
     if (s_st.dj_cnt > 0) {
         s_st.dj_cnt--;
         rgb_t c      = palette_color(s->palette, (uint8_t)s_st.hue_off);
         s_st.hue_off = fmodf(s_st.hue_off + s->custom1 / 4.0f, 255);
-        // 扫列
         for (int y = 0; y < H; y++) led_set_pixel(s_st.dj_col, y, c.r, c.g, c.b);
-        // 扫行
         for (int x = 0; x < W; x++) led_set_pixel(x, s_st.dj_row, c.r, c.g, c.b);
     }
 }
 
-// 12: Ripplepeak
+// 12: Ripplepeak - 峰值涟漪
 static void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
     led_fade_all(30);
-    float speed  = 0.08f + s->custom1 / 640.0f;
-    float thr    = s->custom2 / 255.0f * 0.6f + 0.2f;
-    int   maxrip = MAX_RIPPLES;
-
-    static float last_peak = 0;
-    if (d->peak > thr && d->peak > last_peak + 0.1f && s_st.rip_n < maxrip) {
+    float speed = 0.08f + s->custom1 / 640.0f;
+    float thr   = s->custom2 / 255.0f * 0.6f + 0.2f;
+    if (d->peak > thr && d->peak > s_st.last_peak + 0.1f && s_st.rip_n < MAX_RIPPLES) {
         int i          = s_st.rip_n++;
-        s_st.rip[i].x  = rand() % W;
-        s_st.rip[i].y  = rand() % H;
+        s_st.rip[i].x  = esp_random() % W;
+        s_st.rip[i].y  = esp_random() % H;
         s_st.rip[i].r  = 0;
-        rgb_t c        = palette_color(s->palette, (uint8_t)(s_st.hue_off));
+        rgb_t c        = palette_color(s->palette, (uint8_t)s_st.hue_off);
         s_st.rip[i].ri = c.r;
         s_st.rip[i].gi = c.g;
         s_st.rip[i].bi = c.b;
         s_st.hue_off   = fmodf(s_st.hue_off + 40, 255);
     }
-    last_peak = d->peak;
-
+    s_st.last_peak = d->peak;
     for (int i = 0; i < s_st.rip_n;) {
         s_st.rip[i].r += speed;
         float rad = s_st.rip[i].r;
-        float cx = s_st.rip[i].x, cy = s_st.rip[i].y;
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) {
-                float dist = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                float dist =
+                    sqrtf((x - s_st.rip[i].x) * (x - s_st.rip[i].x) + (y - s_st.rip[i].y) * (y - s_st.rip[i].y));
                 if (fabsf(dist - rad) < 0.8f) {
                     uint8_t brt = (uint8_t)(200.0f / (rad * 0.3f + 1));
                     led_set_pixel(x, y, s_st.rip[i].ri * brt / 255, s_st.rip[i].gi * brt / 255,
@@ -558,14 +540,13 @@ static void fx_freqwave(const mic_data_t* d, const settings_t* s) {
     float amp = 1.0f + s->custom1 / 64.0f;
     s_st.phase += 0.05f + d->volume * 0.1f;
     for (int x = 0; x < W; x++) {
-        int   band  = x * MIC_BANDS / W;
-        float bandv = d->bands[band];
-        float wave  = sinf(s_st.phase + x * 0.8f) * amp * bandv;
-        int   cy    = H / 2 + (int)(wave * H / 4);
+        int   b    = x * MIC_BANDS / W;
+        float wave = sinf(s_st.phase + x * 0.8f) * amp * d->bands[b];
+        int   cy   = H / 2 + (int)(wave * H / 4);
         for (int y = 0; y < H; y++) {
             float   dist = fabsf((float)(y - cy));
             uint8_t brt  = dist < 1.2f ? 255 : (dist < 2.5f ? 120 : 0);
-            rgb_t   c    = palette_color(s->palette, band * 255 / (MIC_BANDS - 1));
+            rgb_t   c    = palette_color(s->palette, b * 255 / (MIC_BANDS - 1));
             led_set_pixel(x, y, c.r * brt / 255, c.g * brt / 255, c.b * brt / 255);
         }
     }
@@ -574,67 +555,49 @@ static void fx_freqwave(const mic_data_t* d, const settings_t* s) {
 // 14: Freqmap
 static void fx_freqmap(const mic_data_t* d, const settings_t* s) {
     uint8_t sat = 128 + s->custom1 / 2;
-    for (int y = 0; y < H; y++) {
+    for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
-            int      band = (x + y * W) * MIC_BANDS / (W * H);
-            float    val  = d->bands[band < MIC_BANDS ? band : MIC_BANDS - 1];
-            uint8_t  v    = (uint8_t)(val * 255);
-            uint16_t hue  = (uint16_t)(band * 360 / MIC_BANDS);
-            led_set_pixel_hsv(x, y, hue, sat, v);
+            int b = (x + y * W) * MIC_BANDS / (W * H);
+            if (b >= MIC_BANDS) b = MIC_BANDS - 1;
+            led_set_pixel_hsv(x, y, (uint16_t)(b * 360 / MIC_BANDS), sat, (uint8_t)(d->bands[b] * 255));
         }
-    }
 }
 
 // 15: Noisemove
 static void fx_noisemove(const mic_data_t* d, const settings_t* s) {
     if (!s_st.noise_init) noise_setup();
-    float scale = 0.3f + s->custom1 / 512.0f;
-    float mod   = 0.5f + s->custom2 / 256.0f;
+    float sc  = 0.3f + s->custom1 / 512.0f;
+    float mod = 0.5f + s->custom2 / 256.0f;
     s_st.phase += 0.02f + d->volume * 0.05f;
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
-            float    n   = noise2d(x * scale + s_st.phase, y * scale);
-            uint8_t  v   = (uint8_t)(n * 255 * (0.3f + d->volume * mod));
-            uint16_t hue = (uint16_t)(n * 360 + d->dominant_freq * 45);
-            led_set_pixel_hsv(x, y, hue % 360, 220, v);
+            float n = noise2d(x * sc + s_st.phase, y * sc);
+            led_set_pixel_hsv(x, y, (uint16_t)(n * 360 + d->dominant_freq * 45) % 360, 220,
+                              (uint8_t)(n * 255 * (0.3f + d->volume * mod)));
         }
 }
 
 // 16: Rocktaves
 static void fx_rocktaves(const mic_data_t* d, const settings_t* s) {
     led_fade_all(40);
-    int octaves = 1 + s->custom1 / 52;
-    if (octaves > 6) octaves = 6;
-    int h = H, w = W;
-    for (int oct = 0; oct < octaves && oct < MIC_BANDS; oct++) {
-        float amp = d->bands[oct];
-        if (amp < 0.05f) continue;
-        int   x = oct * w / octaves;
-        int   y = (int)(amp * (h - 1));
-        rgb_t c = palette_color(s->palette, oct * 255 / (octaves - 1 + 1));
+    int oct = 1 + s->custom1 / 52;
+    if (oct > 6) oct = 6;
+    for (int i = 0; i < oct && i < MIC_BANDS; i++) {
+        if (d->bands[i] < 0.05f) continue;
+        int   x = i * W / oct, y = (int)(d->bands[i] * (H - 1));
+        rgb_t c = palette_color(s->palette, i * 255 / (oct));
         led_set_pixel(x, y, c.r, c.g, c.b);
-        // harmonics
-        for (int h2 = 1; h2 < octaves && x + h2 * w / octaves < w; h2++) {
-            float harm_amp = amp / (h2 + 1);
-            int   hx       = x + h2 * w / octaves;
-            int   hy       = (int)(harm_amp * (h - 1));
-            led_set_pixel(hx, hy, c.r / 2, c.g / 2, c.b / 2);
+        for (int h2 = 1; h2 < oct && x + h2 * W / oct < W; h2++) {
+            led_set_pixel(x + h2 * W / oct, (int)(d->bands[i] / (h2 + 1) * (H - 1)), c.r / 2, c.g / 2, c.b / 2);
         }
     }
 }
 
 // 17: Energy
 static void fx_energy(const mic_data_t* d, const settings_t* s) {
-    s_st.hue_off += 0.3f + d->dominant_freq * 0.5f;
-    if (s_st.hue_off >= 360) s_st.hue_off -= 360;
-
-    float   speed_f = 0.5f + s->custom1 / 255.0f;
-    uint8_t min_v   = s->custom2 / 2;
-    uint8_t v       = (uint8_t)(d->volume * (200 - min_v) + min_v + d->beat * 55);
-    uint8_t sat     = 200 + (uint8_t)(d->beat * 55);
-    bool    radial  = s->custom3 > 128;
-
-    (void)speed_f;
+    s_st.hue_off  = fmodf(s_st.hue_off + 0.3f + d->dominant_freq * 0.5f, 360);
+    uint8_t min_v = s->custom2 / 2, v = (uint8_t)(d->volume * (200 - min_v) + min_v + d->beat * 55);
+    bool    radial = s->custom3 > 128;
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
             float scale = 1.0f;
@@ -643,46 +606,36 @@ static void fx_energy(const mic_data_t* d, const settings_t* s) {
                 scale = 1.0f - sqrtf(dx * dx + dy * dy) / (W * 0.9f);
                 if (scale < 0) scale = 0;
             }
-            uint8_t bv = (uint8_t)(v * scale + d->beat * 50);
-            led_set_pixel_hsv(x, y, (uint16_t)s_st.hue_off, sat, bv);
+            led_set_pixel_hsv(x, y, (uint16_t)s_st.hue_off, 200 + (uint8_t)(d->beat * 55),
+                              (uint8_t)(v * scale + d->beat * 50));
         }
 }
 
 // 18: Plasma
 static void fx_plasma(const mic_data_t* d, const settings_t* s) {
-    float complexity = 1.0f + s->custom1 / 64.0f;
-    float audio_mod  = s->custom2 / 128.0f;
-    s_st.phase += 0.04f + d->volume * audio_mod;
-
+    float complex = 1.0f + s->custom1 / 64.0f;
+    s_st.phase += 0.04f + d->volume * s->custom2 / 128.0f;
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
-            float   v1  = sinf(x * complexity * 0.4f + s_st.phase);
-            float   v2  = sinf(y * complexity * 0.4f + s_st.phase * 0.7f);
-            float   v3  = sinf((x + y) * complexity * 0.3f + s_st.phase * 1.3f);
-            float   v4  = sinf(sqrtf((float)(x * x + y * y)) * complexity * 0.4f + s_st.phase);
-            float   val = (v1 + v2 + v3 + v4 + 4) / 8.0f;  // 0-1
-            uint8_t pos = (uint8_t)(val * 255);
+            float v = (sinf(x * complex * 0.4f + s_st.phase) + sinf(y * complex * 0.4f + s_st.phase * 0.7f) +
+                       sinf((x + y) * complex * 0.3f + s_st.phase * 1.3f) +
+                       sinf(sqrtf((float)(x * x + y * y)) * complex * 0.4f + s_st.phase) + 4) /
+                      8.0f;
+            rgb_t   c   = palette_color(s->palette, (uint8_t)(v * 255));
             uint8_t brt = (uint8_t)(100 + d->volume * 155);
-            rgb_t   c   = palette_color(s->palette, pos);
             led_set_pixel(x, y, c.r * brt / 255, c.g * brt / 255, c.b * brt / 255);
         }
 }
 
 // 19: Swirl
 static void fx_swirl(const mic_data_t* d, const settings_t* s) {
-    float rot_speed = (0.02f + s->custom1 / 2048.0f) * (1 + d->volume * s->custom2 / 128.0f);
-    s_st.phase += rot_speed;
+    s_st.phase += (0.02f + s->custom1 / 2048.0f) * (1 + d->volume * s->custom2 / 128.0f);
     float cx = W / 2.0f, cy = H / 2.0f;
-
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
-            float   dx = x - cx, dy = y - cy;
-            float   angle = atan2f(dy, dx) + s_st.phase;
-            float   dist  = sqrtf(dx * dx + dy * dy);
-            float   val   = (sinf(angle * 3 + dist * 0.8f) + 1) / 2.0f;
-            uint8_t pos   = (uint8_t)(val * 255);
-            uint8_t brt   = (uint8_t)(80 + d->volume * 175);
-            rgb_t   c     = palette_color(s->palette, pos);
+            float   a = atan2f(y - cy, x - cx) + s_st.phase, dist = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+            rgb_t   c   = palette_color(s->palette, (uint8_t)((sinf(a * 3 + dist * 0.8f) + 1) / 2.0f * 255));
+            uint8_t brt = (uint8_t)(80 + d->volume * 175);
             led_set_pixel(x, y, c.r * brt / 255, c.g * brt / 255, c.b * brt / 255);
         }
 }
@@ -694,13 +647,11 @@ static void fx_waverly(const mic_data_t* d, const settings_t* s) {
     s_st.phase += 0.05f + d->volume * 0.1f;
     led_clear();
     for (int w2 = 0; w2 < waves; w2++) {
-        float offset = w2 * H / waves;
-        rgb_t c      = palette_color(s->palette, w2 * 255 / waves);
+        float off = w2 * H / waves;
+        rgb_t c   = palette_color(s->palette, w2 * 255 / waves);
         for (int x = 0; x < W; x++) {
-            int   band  = x * MIC_BANDS / W;
-            float bandv = d->bands[band < MIC_BANDS ? band : MIC_BANDS - 1];
-            float y_f   = offset + sinf(s_st.phase + x * 0.9f + w2) * amp * bandv * H / 2;
-            int   y     = (int)y_f;
+            int b = x * MIC_BANDS / W;
+            int y = (int)(off + sinf(s_st.phase + x * 0.9f + w2) * amp * d->bands[b] * H / 2);
             if (y >= 0 && y < H) {
                 led_set_pixel(x, y, c.r, c.g, c.b);
                 if (y + 1 < H) led_set_pixel(x, y + 1, c.r / 2, c.g / 2, c.b / 2);
@@ -709,37 +660,38 @@ static void fx_waverly(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-// 21: Fire
+// 21: Fire - 经典火焰效果
 static void fx_fire(const mic_data_t* d, const settings_t* s) {
-    int     w = W, h = H;
-    uint8_t cooling  = 120 - s->custom1 / 3;  // speed控制冷却，越快越凉
+    int w = W, h = H;
+    if (w * (h + 2) > LED_MAX_COUNT + 32) return;
+
+    uint8_t cooling  = 120 - s->custom1 / 3;
     uint8_t sparking = 60 + s->custom2 / 3 + (uint8_t)(d->volume * s->custom3 / 2);
     if (sparking > 200) sparking = 200;
 
-    // 冷却
-    for (int y = 0; y < h + 2; y++)
-        for (int x = 0; x < w; x++) {
-            int cool        = rand() % ((cooling * 10 / h) + 2);
-            s_st.fire[y][x] = s_st.fire[y][x] > cool ? s_st.fire[y][x] - cool : 0;
-        }
-    // 向上传播
-    for (int y = 0; y < h + 1; y++)
-        for (int x = 0; x < w; x++)
-            s_st.fire[y][x] = (s_st.fire[y][x] + s_st.fire[y + 1][x] + s_st.fire[y + 1][x] + s_st.fire[y + 2][x]) / 4;
-    // 底部点火
-    if (rand() % 255 < sparking) {
-        int x               = rand() % w;
-        s_st.fire[h + 1][x] = 160 + rand() % 95;
+    for (int i = 0; i < w * (h + 2); i++) {
+        int cool     = esp_random() % ((cooling * 10 / h) + 2);
+        s_st.fire[i] = s_st.fire[i] > cool ? s_st.fire[i] - cool : 0;
     }
-    // 渲染（y=0 在底部）
-    for (int y = 0; y < h; y++)
+    for (int y = 0; y < h + 1; y++) {
         for (int x = 0; x < w; x++) {
-            rgb_t c = palette_color(PALETTE_HEAT, s_st.fire[y][x]);
+            int i0 = y * w + x, i1 = (y + 1) * w + x, i2 = (y + 2) * w + x;
+            s_st.fire[i0] = (s_st.fire[i0] + s_st.fire[i1] + s_st.fire[i1] + s_st.fire[i2]) / 4;
+        }
+    }
+    if (esp_random() % 255 < sparking) {
+        int x                      = esp_random() % w;
+        s_st.fire[(h + 1) * w + x] = 160 + esp_random() % 95;
+    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            rgb_t c = palette_color(PALETTE_HEAT, s_st.fire[y * w + x]);
             led_set_pixel(x, y, c.r, c.g, c.b);
         }
+    }
 }
 
-// ── 分发表 ───────────────────────────────────────────
+// 效果函数分发表（需与 EFFECT_INFO 顺序保持一致）
 typedef void (*fx_fn_t)(const mic_data_t*, const settings_t*);
 static const fx_fn_t FX_TABLE[EFFECT_COUNT] = {
     fx_spectrum,  fx_waterfall, fx_gravimeter, fx_funky_plank, fx_scroll,     fx_centerbars, fx_gravfreq, fx_superfreq,
@@ -747,26 +699,45 @@ static const fx_fn_t FX_TABLE[EFFECT_COUNT] = {
     fx_rocktaves, fx_energy,    fx_plasma,     fx_swirl,       fx_waverly,    fx_fire,
 };
 
-// ── 公共接口 ─────────────────────────────────────────
 void effects_init(void) {
     memset(&s_st, 0, sizeof(s_st));
+    noise_setup();
+    ESP_LOGI(TAG, "effects engine initialized");
 }
 
 void effects_set_mode(uint8_t id) {
-    s_mode = id < EFFECT_COUNT ? id : 0;
-    memset(&s_st, 0, sizeof(s_st));
+    if (id >= EFFECT_COUNT) id = 0;
+    s_mode = id;
+
+    // 切换模式时重置所有特效的内部缓冲区和状态
+    memset(s_st.scroll_buf, 0, sizeof(s_st.scroll_buf));
+    memset(s_st.fire, 0, sizeof(s_st.fire));
+    s_st.rip_n        = 0;
+    s_st.juggles_init = false;
+
+    ESP_LOGI(TAG, "switched to effect: %d (%s)", s_mode, EFFECT_INFO[s_mode].name);
 }
 
 void effects_update(const mic_data_t* data, const settings_t* s) {
     if (s_paused) return;
+
     s_st.frame++;
-    if (FX_TABLE[s_mode]) FX_TABLE[s_mode](data, s);
+
+    // 执行当前选中的效果函数
+    if (FX_TABLE[s_mode]) {
+        FX_TABLE[s_mode](data, s);
+    }
+
+    // 提交帧缓冲并刷新显示
     led_flush();
 }
 
 void effects_pause(void) {
     s_paused = true;
+    ESP_LOGI(TAG, "effects paused");
 }
+
 void effects_resume(void) {
     s_paused = false;
+    ESP_LOGI(TAG, "effects resumed");
 }

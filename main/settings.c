@@ -2,6 +2,8 @@
 
 #include <esp_log.h>
 #include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <string.h>
@@ -19,6 +21,7 @@ static settings_t s = {
     .led_h          = DEF_LED_H,
     .led_serpentine = DEF_LED_SERPENTINE,
     .led_start      = DEF_LED_START,
+    .led_rotation   = DEF_LED_ROTATION,
     .brightness     = DEF_BRIGHTNESS,
     .mic_sck        = DEF_MIC_SCK,
     .mic_ws         = DEF_MIC_WS,
@@ -37,20 +40,29 @@ static settings_t s = {
     .freq_dir       = DEF_FREQ_DIR,
 };
 
+static SemaphoreHandle_t s_mutex = NULL;
+
 void settings_init(void) {
+    s_mutex = xSemaphoreCreateMutex();
+    if (s_mutex == NULL) {
+        ESP_LOGE(TAG, "failed to create mutex");
+    }
+
     nvs_handle_t h;
-    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+    esp_err_t    err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) {
         ESP_LOGI(TAG, "no saved settings, using defaults");
         return;
     }
+
     size_t    len = sizeof(s);
     esp_err_t ret = nvs_get_blob(h, NVS_KEY_SETTINGS, &s, &len);
     nvs_close(h);
 
     if (ret == ESP_OK && len == sizeof(s)) {
-        ESP_LOGI(TAG, "loaded (ssid=%s effect=%d)", s.ssid, s.effect);
+        ESP_LOGI(TAG, "settings loaded, ssid: %s, effect: %d", s.ssid, s.effect);
     } else {
-        ESP_LOGW(TAG, "blob mismatch (len=%d vs %d), using defaults", (int)len, (int)sizeof(s));
+        ESP_LOGW(TAG, "nvs read failed, using defaults");
     }
 }
 
@@ -58,19 +70,39 @@ settings_t* settings_get(void) {
     return &s;
 }
 
+void settings_lock(void) {
+    if (s_mutex) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+    }
+}
+
+void settings_unlock(void) {
+    if (s_mutex) {
+        xSemaphoreGive(s_mutex);
+    }
+}
+
 void settings_save(void) {
     nvs_handle_t h;
-    ESP_ERROR_CHECK(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h));
-    ESP_ERROR_CHECK(nvs_set_blob(h, NVS_KEY_SETTINGS, &s, sizeof(s)));
-    ESP_ERROR_CHECK(nvs_commit(h));
-    nvs_close(h);
-    ESP_LOGI(TAG, "saved");
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        settings_lock();
+        nvs_set_blob(h, NVS_KEY_SETTINGS, &s, sizeof(s));
+        settings_unlock();
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "settings saved");
+    } else {
+        ESP_LOGE(TAG, "failed to open nvs for writing");
+    }
 }
 
 void settings_reset_wifi(void) {
-    s.ssid[0] = '\0';
-    s.pass[0] = '\0';
+    settings_lock();
+    memset(s.ssid, 0, sizeof(s.ssid));
+    memset(s.pass, 0, sizeof(s.pass));
+    settings_unlock();
     settings_save();
+    ESP_LOGI(TAG, "wifi settings cleared");
 }
 
 void settings_factory_reset(void) {
@@ -80,9 +112,13 @@ void settings_factory_reset(void) {
         nvs_commit(h);
         nvs_close(h);
     }
+    ESP_LOGW(TAG, "factory reset, restarting");
     esp_restart();
 }
 
 bool settings_wifi_configured(void) {
-    return s.ssid[0] != '\0';
+    settings_lock();
+    bool configured = (s.ssid[0] != '\0');
+    settings_unlock();
+    return configured;
 }

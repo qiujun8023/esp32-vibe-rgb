@@ -1,32 +1,83 @@
 #pragma once
+
 #include <stdint.h>
 
 #include "settings.h"
 
-#define LED_MAX_COUNT 256  // 静态分配上限
+#define LED_MAX_COUNT 256
 
+/**
+ * 初始化 LED 驱动
+ */
 void led_init(const settings_t* s);
-void led_apply_settings(const settings_t* s);  // 仅更新亮度（不重初始化硬件）
 
-// 基本绘制（坐标系：x=列 y=行，原点 = led_start 角）
+/**
+ * 运行时更新 LED 设置
+ */
+void led_apply_settings(const settings_t* s);
+
+/**
+ * 设置指定逻辑坐标的像素颜色
+ * 坐标系：左下角为 (0,0)
+ */
 void led_set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
+
+/**
+ * 使用 HSV 颜色设置像素
+ */
 void led_set_pixel_hsv(int x, int y, uint16_t h, uint8_t s, uint8_t v);
+
+/**
+ * 获取指定逻辑坐标的当前颜色
+ */
 void led_get_pixel(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b);
+
+/**
+ * 使用指定颜色填充整个矩阵
+ */
 void led_fill(uint8_t r, uint8_t g, uint8_t b);
+
+/**
+ * 清空显示内容
+ */
 void led_clear(void);
+
+/**
+ * 提交帧缓冲到硬件刷新
+ */
 void led_flush(void);
 
-// 直接按索引设置（用于测试，绕过坐标转换）
+/**
+ * 按物理索引直接设置像素（用于布线测试）
+ */
 void led_set_pixel_idx(int idx, uint8_t r, uint8_t g, uint8_t b);
 
-// 效果辅助
-void led_fade_all(uint8_t rate);  // 所有像素向黑衰减
-void led_blur2d(uint8_t amount);  // 2D 模糊（amount=0-255）
+/**
+ * 全屏色彩消退效果
+ */
+void led_fade_all(uint8_t rate);
 
-// 帧缓冲访问（用于 WebSocket 推送实际 LED 状态）
-void led_get_fb(uint8_t* buf, int* len);  // 写入 RGB 平铺，len=像素数*3
+/**
+ * 二维空间模糊滤镜
+ */
+void led_blur2d(uint8_t amount);
 
-// 矩阵尺寸（初始化后从 settings 读取）
+/**
+ * 获取当前逻辑帧缓冲数据（用于 Web 预览）
+ */
+void led_get_fb(uint8_t* buf, int* len);
+
+/**
+ * 获取逻辑矩阵宽度
+ */
 int led_width(void);
+
+/**
+ * 获取逻辑矩阵高度
+ */
 int led_height(void);
+
+/**
+ * 获取矩阵总像素点数
+ */
 int led_count(void);

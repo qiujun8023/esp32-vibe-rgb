@@ -19,7 +19,7 @@ typedef struct {
 static const char* const PALETTE_NAMES[PALETTE_COUNT] = {"Rainbow", "Sunset", "Ocean", "Lava",
                                                          "Forest",  "Party",  "Heat",  "Mono"};
 
-// ── 内部：颜色线性插值 ──────────────────────────────
+// 颜色线性插值
 static inline rgb_t _lerp_rgb(rgb_t a, rgb_t b, uint8_t t) {
     return (rgb_t){
         .r = (uint8_t)(a.r + (int)(b.r - a.r) * t / 255),
@@ -82,7 +82,7 @@ static inline rgb_t _hsv2rgb(uint16_t h, uint8_t s, uint8_t v) {
     return (rgb_t){r, g, b};
 }
 
-// ── 公共接口 ────────────────────────────────────────
+// 公共接口
 static inline rgb_t palette_color(uint8_t pid, uint8_t pos) {
     static const rgb_t sunset[] = {{255, 0, 80}, {255, 100, 0}, {200, 60, 0}, {100, 0, 80}, {20, 0, 60}};
     static const rgb_t ocean[]  = {{0, 20, 60}, {0, 80, 180}, {0, 200, 255}, {0, 255, 200}, {20, 100, 255}};

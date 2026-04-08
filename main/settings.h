@@ -1,49 +1,87 @@
 #pragma once
+
 #include <stdbool.h>
 #include <stdint.h>
 
+/**
+ * 系统全局配置结构体
+ */
 typedef struct {
-    // ── WiFi ──────────────────────────────
+    // WiFi 配置
     char     ssid[64];
     char     pass[64];
-    uint8_t  ip_mode;  // 0=DHCP  1=静态IP
-    uint32_t s_ip;     // 静态IP  (大端序)
+    uint8_t  ip_mode;
+    uint32_t s_ip;
     uint32_t s_mask;
     uint32_t s_gw;
     uint32_t s_dns1;
     uint32_t s_dns2;
 
-    // ── LED ───────────────────────────────
+    // LED 矩阵配置
     uint8_t led_gpio;
-    uint8_t led_w;  // 矩阵宽
-    uint8_t led_h;  // 矩阵高
+    uint8_t led_w;
+    uint8_t led_h;
     uint8_t led_serpentine;
-    uint8_t led_start;  // 0=左下 1=右下 2=左上 3=右上
+    uint8_t led_start;
+    uint8_t led_rotation;
     uint8_t brightness;
 
-    // ── 麦克风 ────────────────────────────
+    // 麦克风与音频分析配置
     uint8_t mic_sck;
     uint8_t mic_ws;
     uint8_t mic_din;
-    uint8_t agc_mode;    // 0=off  1=normal  2=high
-    float   gain;        // 手动增益 (agc_mode=0 时生效)
-    uint8_t squelch;     // 噪声门限 0-255
-    uint8_t fft_smooth;  // FFT 平滑 0-255
+    uint8_t agc_mode;
+    float   gain;
+    uint8_t squelch;
+    uint8_t fft_smooth;
 
-    // ── 效果 ──────────────────────────────
+    // 特效参数
     uint8_t effect;
     uint8_t palette;
-    uint8_t speed;      // 0-255
-    uint8_t intensity;  // 0-255
+    uint8_t speed;
+    uint8_t intensity;
     uint8_t custom1;
     uint8_t custom2;
     uint8_t custom3;
-    uint8_t freq_dir;  // 0=频率左右  1=频率上下
+    uint8_t freq_dir;
 } settings_t;
 
-void        settings_init(void);
+/**
+ * 初始化配置模块，从 NVS 加载配置
+ */
+void settings_init(void);
+
+/**
+ * 获取配置结构体指针（访问前需加锁）
+ */
 settings_t* settings_get(void);
-void        settings_save(void);
-void        settings_reset_wifi(void);
-void        settings_factory_reset(void);  // 清 NVS 后重启
-bool        settings_wifi_configured(void);
+
+/**
+ * 加锁配置互斥量
+ */
+void settings_lock(void);
+
+/**
+ * 解锁配置互斥量
+ */
+void settings_unlock(void);
+
+/**
+ * 将配置持久化到 NVS
+ */
+void settings_save(void);
+
+/**
+ * 清除 WiFi 配置
+ */
+void settings_reset_wifi(void);
+
+/**
+ * 恢复出厂设置并重启
+ */
+void settings_factory_reset(void);
+
+/**
+ * 检查 WiFi 是否已配置
+ */
+bool settings_wifi_configured(void);

@@ -4,26 +4,71 @@
 #include <led_strip.h>
 #include <string.h>
 
+#include "palettes.h"
+
 static const char* TAG = "led";
 
 static led_strip_handle_t s_strip;
 static uint8_t            s_brightness = 160;
 static int                s_w = 8, s_h = 8;
 static uint8_t            s_serpentine = 1;
-static uint8_t            s_start      = 0;  // 0=左下 1=右下 2=左上 3=右上
+static uint8_t            s_start      = 0;
+static uint8_t            s_rotation   = 0;
 
-// 帧缓冲（原始亮度，不含全局 brightness 缩放）
 static uint8_t s_fb[LED_MAX_COUNT * 3];
+static int16_t s_lookup[LED_MAX_COUNT];
 
-// ── 矩阵坐标 → LED 编号 ────────────────────────────
-// 坐标系：x∈[0,W-1]  y∈[0,H-1]，左下=(0,0)
-// 物理 LED 0 在 led_start 角
-static int matrix_idx(int x, int y) {
-    // 翻转坐标以适配起始角
-    int px = (s_start & 1) ? (s_w - 1 - x) : x;  // bit0: 左/右
-    int py = (s_start & 2) ? (s_h - 1 - y) : y;  // bit1: 下/上
-    if (s_serpentine && (py & 1)) px = (s_w - 1) - px;
-    return py * s_w + px;
+/**
+ * 计算物理 LED 索引
+ */
+static int get_physical_idx(int px, int py) {
+    if (px < 0 || px >= s_w || py < 0 || py >= s_h) return -1;
+
+    int x = (s_start & 1) ? (s_w - 1 - px) : px;
+    int y = (s_start & 2) ? (s_h - 1 - py) : py;
+
+    if (s_serpentine && (y & 1)) {
+        x = (s_w - 1) - x;
+    }
+
+    return y * s_w + x;
+}
+
+/**
+ * 更新坐标映射查找表
+ */
+static void update_lookup(void) {
+    int lw = led_width();
+    int lh = led_height();
+
+    for (int ly = 0; ly < lh; ly++) {
+        for (int lx = 0; lx < lw; lx++) {
+            int px, py;
+            switch (s_rotation) {
+                case 1:
+                    px = ly;
+                    py = s_h - 1 - lx;
+                    break;
+                case 2:
+                    px = s_w - 1 - lx;
+                    py = s_h - 1 - ly;
+                    break;
+                case 3:
+                    px = s_w - 1 - ly;
+                    py = lx;
+                    break;
+                default:
+                    px = lx;
+                    py = ly;
+                    break;
+            }
+            s_lookup[ly * lw + lx] = get_physical_idx(px, py);
+        }
+    }
+}
+
+static inline uint8_t scale_brightness(uint8_t v) {
+    return (uint8_t)((uint32_t)v * s_brightness / 255);
 }
 
 void led_init(const settings_t* st) {
@@ -31,10 +76,17 @@ void led_init(const settings_t* st) {
     s_h          = st->led_h ? st->led_h : 8;
     s_serpentine = st->led_serpentine;
     s_start      = st->led_start;
+    s_rotation   = st->led_rotation;
     s_brightness = st->brightness;
 
     int count = s_w * s_h;
-    memset(s_fb, 0, count * 3);
+    if (count > LED_MAX_COUNT) {
+        ESP_LOGE(TAG, "led count %d exceeds max %d", count, LED_MAX_COUNT);
+        count = LED_MAX_COUNT;
+    }
+
+    memset(s_fb, 0, sizeof(s_fb));
+    update_lookup();
 
     led_strip_config_t strip_cfg = {
         .strip_gpio_num   = st->led_gpio,
@@ -48,167 +100,177 @@ void led_init(const settings_t* st) {
         .mem_block_symbols = 64,
         .flags.with_dma    = false,
     };
-    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_strip));
+
+    esp_err_t err = led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_strip);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to create led strip: %s", esp_err_to_name(err));
+        return;
+    }
     led_strip_clear(s_strip);
-    ESP_LOGI(TAG, "init gpio=%d w=%d h=%d serpentine=%d start=%d", st->led_gpio, s_w, s_h, s_serpentine, s_start);
+
+    ESP_LOGI(TAG, "led init ok, gpio: %d, size: %dx%d", st->led_gpio, s_w, s_h);
 }
 
 void led_apply_settings(const settings_t* st) {
     s_brightness = st->brightness;
     s_serpentine = st->led_serpentine;
     s_start      = st->led_start;
-}
-
-static uint8_t sc(uint8_t v) {
-    return (uint8_t)((uint32_t)v * s_brightness / 255);
+    s_rotation   = st->led_rotation;
+    s_w          = st->led_w ? st->led_w : 8;
+    s_h          = st->led_h ? st->led_h : 8;
+    update_lookup();
 }
 
 void led_set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-    if (x < 0 || x >= s_w || y < 0 || y >= s_h) return;
-    int idx           = matrix_idx(x, y);
+    int lw = led_width();
+    int lh = led_height();
+    if (x < 0 || x >= lw || y < 0 || y >= lh) return;
+
+    int idx = s_lookup[y * lw + x];
+    if (idx < 0 || idx >= LED_MAX_COUNT) return;
+
     s_fb[idx * 3]     = r;
     s_fb[idx * 3 + 1] = g;
     s_fb[idx * 3 + 2] = b;
-    led_strip_set_pixel(s_strip, idx, sc(r), sc(g), sc(b));
+
+    led_strip_set_pixel(s_strip, idx, scale_brightness(r), scale_brightness(g), scale_brightness(b));
 }
 
 void led_set_pixel_idx(int idx, uint8_t r, uint8_t g, uint8_t b) {
-    int count = s_w * s_h;
-    if (idx < 0 || idx >= count) return;
+    if (idx < 0 || idx >= s_w * s_h || idx >= LED_MAX_COUNT) return;
     s_fb[idx * 3]     = r;
     s_fb[idx * 3 + 1] = g;
     s_fb[idx * 3 + 2] = b;
-    led_strip_set_pixel(s_strip, idx, sc(r), sc(g), sc(b));
+    led_strip_set_pixel(s_strip, idx, scale_brightness(r), scale_brightness(g), scale_brightness(b));
 }
 
 void led_get_pixel(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
-    if (x < 0 || x >= s_w || y < 0 || y >= s_h) {
+    int lw = led_width();
+    int lh = led_height();
+    if (x < 0 || x >= lw || y < 0 || y >= lh) {
         *r = *g = *b = 0;
         return;
     }
-    int idx = matrix_idx(x, y);
-    *r      = s_fb[idx * 3];
-    *g      = s_fb[idx * 3 + 1];
-    *b      = s_fb[idx * 3 + 2];
+    int idx = s_lookup[y * lw + x];
+    if (idx < 0 || idx >= LED_MAX_COUNT) {
+        *r = *g = *b = 0;
+        return;
+    }
+    *r = s_fb[idx * 3];
+    *g = s_fb[idx * 3 + 1];
+    *b = s_fb[idx * 3 + 2];
 }
 
 void led_set_pixel_hsv(int x, int y, uint16_t h, uint8_t s, uint8_t v) {
-    h %= 360;
-    uint8_t r2, g2, b2;
-    if (s == 0) {
-        r2 = g2 = b2 = v;
-    } else {
-        uint16_t reg = h / 60, rem = (h % 60) * 255 / 60;
-        uint8_t  p  = (uint32_t)v * (255 - s) / 255;
-        uint8_t  q  = (uint32_t)v * (255 - (uint32_t)s * rem / 255) / 255;
-        uint8_t  t2 = (uint32_t)v * (255 - (uint32_t)s * (255 - rem) / 255) / 255;
-        switch (reg) {
-            case 0:
-                r2 = v;
-                g2 = t2;
-                b2 = p;
-                break;
-            case 1:
-                r2 = q;
-                g2 = v;
-                b2 = p;
-                break;
-            case 2:
-                r2 = p;
-                g2 = v;
-                b2 = t2;
-                break;
-            case 3:
-                r2 = p;
-                g2 = q;
-                b2 = v;
-                break;
-            case 4:
-                r2 = t2;
-                g2 = p;
-                b2 = v;
-                break;
-            default:
-                r2 = v;
-                g2 = p;
-                b2 = q;
-                break;
-        }
-    }
-    led_set_pixel(x, y, r2, g2, b2);
+    rgb_t c = _hsv2rgb(h, s, v);
+    led_set_pixel(x, y, c.r, c.g, c.b);
 }
 
 void led_fill(uint8_t r, uint8_t g, uint8_t b) {
-    for (int y = 0; y < s_h; y++)
-        for (int x = 0; x < s_w; x++) led_set_pixel(x, y, r, g, b);
+    int count = s_w * s_h;
+    for (int i = 0; i < count; i++) {
+        led_set_pixel_idx(i, r, g, b);
+    }
 }
 
 void led_clear(void) {
-    memset(s_fb, 0, s_w * s_h * 3);
-    led_strip_clear(s_strip);
+    memset(s_fb, 0, sizeof(s_fb));
+    if (s_strip) {
+        led_strip_clear(s_strip);
+    }
 }
 
 void led_flush(void) {
-    led_strip_refresh(s_strip);
+    if (s_strip) {
+        led_strip_refresh(s_strip);
+    }
 }
 
 void led_fade_all(uint8_t rate) {
-    for (int y = 0; y < s_h; y++)
-        for (int x = 0; x < s_w; x++) {
-            uint8_t r, g, b;
-            led_get_pixel(x, y, &r, &g, &b);
-            r = r > rate ? r - rate : 0;
-            g = g > rate ? g - rate : 0;
-            b = b > rate ? b - rate : 0;
-            led_set_pixel(x, y, r, g, b);
-        }
+    int count = s_w * s_h;
+    for (int i = 0; i < count; i++) {
+        uint8_t r = s_fb[i * 3];
+        uint8_t g = s_fb[i * 3 + 1];
+        uint8_t b = s_fb[i * 3 + 2];
+
+        r = (r > rate) ? r - rate : 0;
+        g = (g > rate) ? g - rate : 0;
+        b = (b > rate) ? b - rate : 0;
+
+        led_set_pixel_idx(i, r, g, b);
+    }
 }
 
 void led_blur2d(uint8_t amount) {
     if (amount == 0) return;
+
     static uint8_t tmp[LED_MAX_COUNT * 3];
     int            count = s_w * s_h;
     memcpy(tmp, s_fb, count * 3);
 
-    uint8_t keep  = 255 - amount;
-    uint8_t share = amount / 4;
+    uint16_t keep  = 255 - amount;
+    uint16_t share = amount / 4;
 
-    for (int y = 0; y < s_h; y++) {
-        for (int x = 0; x < s_w; x++) {
+    int lw = led_width();
+    int lh = led_height();
+
+    for (int y = 0; y < lh; y++) {
+        for (int x = 0; x < lw; x++) {
+            int idx = s_lookup[y * lw + x];
+            if (idx < 0) continue;
+
             for (int c = 0; c < 3; c++) {
-                uint16_t v = (uint16_t)tmp[(matrix_idx(x, y)) * 3 + c] * keep / 255;
-                if (x > 0) v += (uint16_t)tmp[(matrix_idx(x - 1, y)) * 3 + c] * share / 255;
-                if (x < s_w - 1) v += (uint16_t)tmp[(matrix_idx(x + 1, y)) * 3 + c] * share / 255;
-                if (y > 0) v += (uint16_t)tmp[(matrix_idx(x, y - 1)) * 3 + c] * share / 255;
-                if (y < s_h - 1) v += (uint16_t)tmp[(matrix_idx(x, y + 1)) * 3 + c] * share / 255;
-                uint8_t* fb = s_fb + matrix_idx(x, y) * 3 + c;
-                *fb         = v > 255 ? 255 : (uint8_t)v;
-                led_strip_set_pixel(s_strip, matrix_idx(x, y), sc(s_fb[matrix_idx(x, y) * 3]),
-                                    sc(s_fb[matrix_idx(x, y) * 3 + 1]), sc(s_fb[matrix_idx(x, y) * 3 + 2]));
+                uint32_t v = (uint32_t)tmp[idx * 3 + c] * keep;
+
+                if (x > 0) {
+                    int n_idx = s_lookup[y * lw + (x - 1)];
+                    if (n_idx >= 0) v += (uint32_t)tmp[n_idx * 3 + c] * share;
+                }
+                if (x < lw - 1) {
+                    int n_idx = s_lookup[y * lw + (x + 1)];
+                    if (n_idx >= 0) v += (uint32_t)tmp[n_idx * 3 + c] * share;
+                }
+                if (y > 0) {
+                    int n_idx = s_lookup[(y - 1) * lw + x];
+                    if (n_idx >= 0) v += (uint32_t)tmp[n_idx * 3 + c] * share;
+                }
+                if (y < lh - 1) {
+                    int n_idx = s_lookup[(y + 1) * lw + x];
+                    if (n_idx >= 0) v += (uint32_t)tmp[n_idx * 3 + c] * share;
+                }
+
+                v /= 255;
+                s_fb[idx * 3 + c] = (v > 255) ? 255 : (uint8_t)v;
             }
+            led_strip_set_pixel(s_strip, idx, scale_brightness(s_fb[idx * 3]), scale_brightness(s_fb[idx * 3 + 1]),
+                                scale_brightness(s_fb[idx * 3 + 2]));
         }
     }
 }
 
 void led_get_fb(uint8_t* buf, int* len) {
-    int n = s_w * s_h;
-    // 按逻辑坐标顺序输出（左下→右→上）
-    for (int y = 0; y < s_h; y++) {
-        for (int x = 0; x < s_w; x++) {
-            int idx                    = matrix_idx(x, y);
-            buf[(y * s_w + x) * 3]     = s_fb[idx * 3];
-            buf[(y * s_w + x) * 3 + 1] = s_fb[idx * 3 + 1];
-            buf[(y * s_w + x) * 3 + 2] = s_fb[idx * 3 + 2];
+    int lw = led_width();
+    int lh = led_height();
+    for (int y = 0; y < lh; y++) {
+        for (int x = 0; x < lw; x++) {
+            int idx = s_lookup[y * lw + x];
+            if (idx >= 0) {
+                buf[(y * lw + x) * 3]     = s_fb[idx * 3];
+                buf[(y * lw + x) * 3 + 1] = s_fb[idx * 3 + 1];
+                buf[(y * lw + x) * 3 + 2] = s_fb[idx * 3 + 2];
+            } else {
+                memset(&buf[(y * lw + x) * 3], 0, 3);
+            }
         }
     }
-    *len = n * 3;
+    *len = lw * lh * 3;
 }
 
 int led_width(void) {
-    return s_w;
+    return (s_rotation & 1) ? s_h : s_w;
 }
 int led_height(void) {
-    return s_h;
+    return (s_rotation & 1) ? s_w : s_h;
 }
 int led_count(void) {
     return s_w * s_h;
