@@ -492,10 +492,11 @@ function renderMatrix(hex) {
   const w = App.state.led_w || 8;
   const h = App.state.led_h || 8;
   
-  // 自适应单元格大小
+  // 自适应单元格大小，预留发光空间
   const maxDim = Math.max(w, h);
-  const maxSize = Math.min(280, window.innerWidth - 48);
-  const cellSize = Math.max(4, Math.floor(maxSize / maxDim));
+  const maxSize = Math.min(260, window.innerWidth - 56);
+  const cellSize = Math.max(8, Math.floor(maxSize / maxDim));
+  const radius = Math.max(2, (cellSize - 4) / 2);
   
   const canvasW = w * cellSize;
   const canvasH = h * cellSize;
@@ -505,11 +506,13 @@ function renderMatrix(hex) {
     App.matrixCanvas.height = canvasH;
   }
   
-  // 清空
-  App.matrixCtx.fillStyle = '#000';
-  App.matrixCtx.fillRect(0, 0, canvasW, canvasH);
+  const ctx = App.matrixCtx;
   
-  // 绘制像素
+  // 清空背景
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+  
+  // 绘制圆形像素
   const count = Math.min(hex.length / 6, w * h);
   
   for (let i = 0; i < count; i++) {
@@ -522,10 +525,26 @@ function renderMatrix(hex) {
     
     if (y >= h) continue;
     
-    // Y 轴翻转
-    App.matrixCtx.fillStyle = `rgb(${r},${g},${b})`;
-    App.matrixCtx.fillRect(x * cellSize, (h - 1 - y) * cellSize, cellSize - 1, cellSize - 1);
+    const cx = x * cellSize + cellSize / 2;
+    const cy = (h - 1 - y) * cellSize + cellSize / 2;
+    
+    // 发光效果（亮度足够时）
+    const brightness = (r + g + b) / 3;
+    if (brightness > 20) {
+      ctx.shadowColor = `rgb(${r},${g},${b})`;
+      ctx.shadowBlur = Math.max(4, cellSize / 3);
+    } else {
+      ctx.shadowBlur = 0;
+    }
+    
+    // 绘制圆形 LED
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
+  
+  ctx.shadowBlur = 0;
 }
 
 function renderLedPreview() {
@@ -565,37 +584,50 @@ function renderLedPreview() {
     });
   }
   
-  // 绘制连线
-  ctx.strokeStyle = 'rgba(34, 211, 238, 0.3)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  
-  for (let i = 0; i < points.length; i++) {
-    if (i === 0) {
-      ctx.moveTo(points[i].x, points[i].y);
-    } else {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
+  // 绘制连线（RGB 渐变）
+  for (let i = 1; i < points.length; i++) {
+    const t = i / total;
+    const gradient = ctx.createLinearGradient(
+      points[i-1].x, points[i-1].y, points[i].x, points[i].y
+    );
+    
+    // RGB 色相循环
+    const hue = (t * 360) % 360;
+    const color = `hsl(${hue}, 100%, 60%)`;
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(points[i-1].x, points[i-1].y);
+    ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
   }
-  ctx.stroke();
   
   // 绘制 LED 节点和序号
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
+    const t = i / total;
+    const hue = (t * 360) % 360;
+    
+    // 发光效果
+    ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+    ctx.shadowBlur = 8;
     
     // 圆形节点
-    ctx.fillStyle = 'rgba(34, 211, 238, 0.15)';
+    ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.3)`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, cellSize / 3, 0, Math.PI * 2);
     ctx.fill();
     
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.6)';
+    ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
     ctx.lineWidth = 1;
     ctx.stroke();
     
+    ctx.shadowBlur = 0;
+    
     // 序号
-    ctx.fillStyle = '#22d3ee';
-    ctx.font = `${Math.max(10, cellSize / 3)}px JetBrains Mono, monospace`;
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.max(10, cellSize / 3)}px JetBrains Mono, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(i), p.x, p.y);

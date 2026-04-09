@@ -52,7 +52,8 @@ typedef struct {
     float band_noise[MIC_BANDS];
     float band_peak[MIC_BANDS];
     float smooth_bands[MIC_BANDS];
-    float peak_decay;
+    float smooth_vol;    // 平滑后的即时音量（输出用，停音后快速归零）
+    float peak_decay;    // 峰值保持（慢衰减，仅用于节拍检测和 peak 展示）
     bool  need_reset;
 } mic_filter_t;
 
@@ -64,6 +65,7 @@ static void filter_reset(mic_filter_t* f) {
         f->band_peak[i]   = 0.0f;
         f->smooth_bands[i] = 0.0f;
     }
+    f->smooth_vol = 0.0f;
     f->peak_decay = 0.0f;
     f->need_reset = false;
 }
@@ -208,22 +210,37 @@ static void mic_task(void* arg) {
             current_bands[b]         = s_filter.smooth_bands[b];
         }
 
-        // 音量 + 峰值衰减
-        float volume = max_raw * 3.5f;
+        // ── 音量计算 ─────────────────────────────────────────────────────────
+        // 计算各频带噪声底均值，用于减去背景底噪
+        float noise_avg = 0;
+        for (int b = 0; b < MIC_BANDS; b++) noise_avg += s_filter.band_noise[b];
+        noise_avg /= MIC_BANDS;
+
+        // 即时音量 = 信号超出噪声底的部分，不放大背景噪声
+        float volume = (max_raw - noise_avg * 1.5f) * 4.0f;
+        if (volume < 0) volume = 0;
         if (volume > 1.0f) volume = 1.0f;
 
-        if (volume > s_filter.peak_decay) s_filter.peak_decay = volume;
-        else                              s_filter.peak_decay *= 0.96f;
+        // 快速平滑：上升快（0.7），下降较快（0.2），停音后约 ~300ms 归零
+        float vol_alpha        = (volume > s_filter.smooth_vol) ? 0.7f : 0.2f;
+        s_filter.smooth_vol    = s_filter.smooth_vol * (1.0f - vol_alpha)
+                               + volume * vol_alpha;
 
-        float out_volume = s_filter.peak_decay;
-        float squelch_f  = (float)s_squelch / 512.0f;
-        if (out_volume < squelch_f) {
-            out_volume = 0;
+        // 峰值保持（仅用于节拍检测 / peak 展示，不影响 volume 输出）
+        if (s_filter.smooth_vol > s_filter.peak_decay)
+            s_filter.peak_decay = s_filter.smooth_vol;
+        else
+            s_filter.peak_decay *= 0.98f;
+
+        // Squelch：低于门限时强制归零（消除底噪显示）
+        float squelch_f  = (float)s_squelch / 255.0f * 0.15f;
+        float out_volume = (s_filter.smooth_vol > squelch_f) ? s_filter.smooth_vol : 0;
+        if (out_volume == 0) {
             for (int b = 0; b < MIC_BANDS; b++) current_bands[b] = 0;
         }
 
         float beat = beat_detect(raw_energy);
-        if (out_volume < squelch_f) beat = 0;
+        if (out_volume == 0) beat = 0;
 
         // 写共享数据
         xSemaphoreTake(s_mutex, portMAX_DELAY);
