@@ -44,14 +44,16 @@ const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
 void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
     int w = W, h = H;
     if (s->freq_dir == 0) {
+        // 柱子从底部向上长 (y=0 是底部)
         for (int i = 0; i < h; i++) {
-            if (i < height) led_set_pixel(band, h - 1 - i, c.r, c.g, c.b);
-            else led_set_pixel(band, h - 1 - i, 0, 0, 0);
+            if (i < height) led_set_pixel(band, i, c.r, c.g, c.b);
+            else led_set_pixel(band, i, 0, 0, 0);
         }
     } else {
+        // 垂直排列：柱子向右长
         for (int i = 0; i < w; i++) {
-            if (i < height) led_set_pixel(i, h - 1 - band, c.r, c.g, c.b);
-            else led_set_pixel(i, h - 1 - band, 0, 0, 0);
+            if (i < height) led_set_pixel(i, band, c.r, c.g, c.b);
+            else led_set_pixel(i, band, 0, 0, 0);
         }
     }
 }

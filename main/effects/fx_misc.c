@@ -199,6 +199,7 @@ void fx_djlight(const mic_data_t* d, const settings_t* s) {
 
 /**
  * FX_2DCENTERBARS (26) - 中心柱
+ * 修复：去掉 h-1-y 反转，让柱子从底部向上长
  */
 void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed);
@@ -215,7 +216,8 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
         if (band >= MIC_BANDS) band = MIC_BANDS - 1;
 
         int bar_height = (int)(d->bands[band] * h);
-        int y_start    = center_h ? (h - bar_height) / 2 : 0;
+        // 柱子从底部向上长，y_start = 0（底部），y_end = bar_height
+        int y_start = center_h ? (h - bar_height) / 2 : 0;
 
         for (int y = 0; y < h; y++) {
             uint16_t color_idx;
@@ -230,10 +232,10 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
             uint8_t is_bar = (y >= y_start && y < y_start + bar_height) ? 1 : 0;
             if (is_bar) {
                 if (center_v) {
-                    led_set_pixel(w / 2 + x, h - 1 - y, c.r, c.g, c.b);
-                    led_set_pixel(w / 2 - 1 - x, h - 1 - y, c.r, c.g, c.b);
+                    led_set_pixel(w / 2 + x, y, c.r, c.g, c.b);
+                    led_set_pixel(w / 2 - 1 - x, y, c.r, c.g, c.b);
                 } else {
-                    led_set_pixel(x, h - 1 - y, c.r, c.g, c.b);
+                    led_set_pixel(x, y, c.r, c.g, c.b);
                 }
             }
         }
@@ -242,20 +244,43 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
 
 /**
  * FX_BLURZ (27) - 模糊色块
+ * 修复：改用音量触发，增加每次添加的像素数量和大小
  */
 void fx_blurz(const mic_data_t* d, const settings_t* s) {
     led_blur2d(s->custom2);
     fade_out(s->speed);
 
-    if (d->beat > 0.3f) {
-        int     x        = esp_random() % W;
-        int     y        = esp_random() % H;
-        uint8_t band_idx = s_st.frame % MIC_BANDS;
-        uint8_t color    = band_idx * 16;
-        rgb_t   c        = palette_color(s->palette, color);
-        uint8_t bri      = (uint8_t)(d->bands[band_idx] * 255 * 2);
-        led_set_pixel(x, y, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
+    // 改用音量触发，而非节拍检测
+    float trigger = d->volume * (s->intensity / 64.0f + 1.0f);
+    
+    if (d->volume > 0.15f && (esp_random() % 100) < (int)(trigger * 20)) {
+        // 根据音量决定添加的像素数量
+        int count = (int)(d->volume * 4) + 1;
+        
+        for (int i = 0; i < count; i++) {
+            int     x        = esp_random() % W;
+            int     y        = esp_random() % H;
+            uint8_t band_idx = (s_st.frame + i) % MIC_BANDS;
+            uint8_t color    = band_idx * 32 + (uint8_t)s_st.hue_off;
+            rgb_t   c        = palette_color(s->palette, color);
+            uint8_t bri      = (uint8_t)(d->bands[band_idx] * 255);
+            if (bri < 50) bri = 50;  // 确保最小亮度
+            
+            // 添加一个小色块（不只是单个像素）
+            int size = (int)(d->volume * 2) + 1;
+            for (int dy = -size; dy <= size; dy++) {
+                for (int dx = -size; dx <= size; dx++) {
+                    if (dx * dx + dy * dy <= size * size) {
+                        int px = x + dx, py = y + dy;
+                        if (px >= 0 && px < W && py >= 0 && py < H) {
+                            led_set_pixel(px, py, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     s_st.frame++;
+    s_st.hue_off = fmodf(s_st.hue_off + 0.3f, 255);
 }

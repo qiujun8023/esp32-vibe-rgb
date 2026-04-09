@@ -53,24 +53,27 @@ void fx_midnoise(const mic_data_t* d, const settings_t* s) {
 
 /**
  * FX_NOISEMETER (9) - 噪声计
+ * 修复：去掉 h-1-y 反转，让柱子从底部向上长
  */
 void fx_noisemeter(const mic_data_t* d, const settings_t* s) {
     fade_out(200);
     int w = W, h = H;
-    
+
     for (int x = 0; x < w; x++) {
         float n = noise2d(x * 0.2f + s_st.phase, 0);
         int   bar_h = (int)(n * h * d->volume * 2);
         if (bar_h > h) bar_h = h;
-        
+
         rgb_t c = palette_color(s->palette, x * 255 / w);
-        for(int y=0; y<bar_h; y++) led_set_pixel(x, h-1-y, c.r, c.g, c.b);
+        for(int y=0; y<bar_h; y++) led_set_pixel(x, y, c.r, c.g, c.b);
     }
     s_st.phase += s->speed / 255.0f;
 }
 
 /**
  * FX_NOISEFIRE (16) - 噪声火焰
+ * 坐标系：y=0 是底部，y=h-1 是顶部
+ * 逻辑：火焰从底部向上燃烧，底部最亮向上渐暗
  */
 void fx_noisefire(const mic_data_t* d, const settings_t* s) {
     int   w     = W, h = H;
@@ -79,9 +82,10 @@ void fx_noisefire(const mic_data_t* d, const settings_t* s) {
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            // 火焰噪声逻辑：Y 越小（底部）越亮
+            // 火焰噪声逻辑：底部(y=0)最亮，向上渐暗
+            // -s_st.phase 让噪声向上移动 = 火焰向上燃烧
             float noise = noise2d(x * 0.5f, y * 0.5f - s_st.phase);
-            float mask  = (float)(h - y) / h;
+            float mask  = (float)(h - y) / h;  // 底部 mask=1，顶部 mask≈0
             float v     = noise * mask * (d->volume * 3.0f + 0.5f);
 
             if (v > 1.0f) v = 1.0f;

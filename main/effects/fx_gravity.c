@@ -44,9 +44,10 @@ void fx_juggles(const mic_data_t* d, const settings_t* s) {
 
 /**
  * FX_GRAVIMETER (5) - 重力计 (2D 频谱版)
+ * 修复：改用 fade_out 替代清屏，上升时平滑过渡，消除频闪
  */
 void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
-    led_clear();
+    fade_out(30);  // 改用 fade_out 替代 led_clear，消除频闪
     int w = W, h = H;
     float gravity = (10 - s->speed / 32) * 0.05f;
 
@@ -56,10 +57,12 @@ void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
         float target_h = val * h;
 
         if (target_h >= s_st.grav_pos[x]) {
-            s_st.grav_pos[x] = target_h;
+            // 上升时平滑过渡，而非立即跳变
+            float rise_speed = 0.7f;  // 上升速度系数
+            s_st.grav_pos[x] += (target_h - s_st.grav_pos[x]) * rise_speed;
             s_st.grav_vel[x] = 0;
-            s_st.top_led[x]  = (int)target_h;
         } else {
+            // 下落时带重力加速
             s_st.grav_vel[x] += gravity;
             s_st.grav_pos[x] -= s_st.grav_vel[x];
             if (s_st.grav_pos[x] < 0) s_st.grav_pos[x] = 0;
@@ -68,11 +71,9 @@ void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
         rgb_t c = palette_color(s->palette, x * 255 / w);
         int   py = (int)s_st.grav_pos[x];
         for (int y = 0; y < py && y < h; y++) {
-            if (s->freq_dir == 0) led_set_pixel(x, h - 1 - y, c.r, c.g, c.b);
+            if (s->freq_dir == 0) led_set_pixel(x, y, c.r, c.g, c.b);
             else led_set_pixel(y, x, c.r, c.g, c.b);
         }
-        
-        // 移除峰值点绘制，用户不需要
     }
 }
 
@@ -152,30 +153,31 @@ void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
 
 /**
  * FX_2DFUNKYPLANK (25) - 下落木板
+ * 坐标系：y=0 是底部，y=h-1 是顶部
+ * 逻辑：木板从顶部向下落，新木板从顶部注入
  */
 void fx_2dfunkyplank(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
-    
-    // 全屏向上滚动
+
+    // 从高处(y+1)向低处(y)滚动 = 从上往下落
     for (int y = 0; y < h - 1; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t r, g, b;
-            led_get_pixel(x, y + 1, &r, &g, &b);
-            led_set_pixel(x, y, r, g, b);
+            led_get_pixel(x, y + 1, &r, &g, &b);  // 从高处获取
+            led_set_pixel(x, y, r, g, b);          // 向低处移动
         }
     }
 
-    // 底部注入新木板
+    // 顶部注入新木板 (y = h-1 是顶部)
     for (int b = 0; b < MIC_BANDS; b++) {
         float val = d->bands[b];
+        int x_start = b * w / MIC_BANDS;
+        int x_end = (b + 1) * w / MIC_BANDS;
+        
         if (val > 0.5f) {
             rgb_t c = palette_color(s->palette, b * 32);
-            int x_start = b * w / MIC_BANDS;
-            int x_end = (b + 1) * w / MIC_BANDS;
             for(int x = x_start; x < x_end; x++) led_set_pixel(x, h - 1, c.r, c.g, c.b);
         } else {
-            int x_start = b * w / MIC_BANDS;
-            int x_end = (b + 1) * w / MIC_BANDS;
             for(int x = x_start; x < x_end; x++) led_set_pixel(x, h - 1, 0, 0, 0);
         }
     }
