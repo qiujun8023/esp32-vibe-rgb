@@ -1,3 +1,7 @@
+// net/wifi_prov.c
+// WiFi AP 配网模式：Captive Portal + DNS 劫持
+// 修改：移除重复的 esp_netif_init / esp_event_loop_create_default（由 net_init() 统一调用）
+
 #include "wifi_prov.h"
 
 #include <cJSON.h>
@@ -13,7 +17,6 @@
 #include <freertos/task.h>
 #include <lwip/inet.h>
 #include <lwip/sockets.h>
-#include <nvs_flash.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -27,12 +30,10 @@ static EventGroupHandle_t s_evt;
 
 extern const char     html_prov_html_start[] asm("_binary_prov_html_start");
 extern const char     html_style_css_start[] asm("_binary_style_css_start");
-extern const unsigned prov_html_length asm("prov_html_length");
-extern const unsigned style_css_length asm("style_css_length");
+extern const unsigned prov_html_length       asm("prov_html_length");
+extern const unsigned style_css_length       asm("style_css_length");
 
-/**
- * URL 解码
- */
+// ── URL 解码 ──────────────────────────────────────────────────────────────────
 static void url_decode(char* dst, const char* src, size_t maxlen) {
     size_t j = 0;
     for (size_t i = 0; src[i] && j < maxlen - 1; i++) {
@@ -49,17 +50,11 @@ static void url_decode(char* dst, const char* src, size_t maxlen) {
     dst[j] = '\0';
 }
 
-/**
- * 从 HTTP POST Body 中提取字段值
- */
 static void extract_field(const char* body, const char* key, char* out, size_t outlen) {
     char search[32];
     snprintf(search, sizeof(search), "%s=", key);
     const char* p = strstr(body, search);
-    if (!p) {
-        out[0] = '\0';
-        return;
-    }
+    if (!p) { out[0] = '\0'; return; }
     p += strlen(search);
     const char* end = strchr(p, '&');
     size_t      len = end ? (size_t)(end - p) : strlen(p);
@@ -70,6 +65,7 @@ static void extract_field(const char* body, const char* key, char* out, size_t o
     url_decode(out, raw, outlen);
 }
 
+// ── HTTP 处理器 ───────────────────────────────────────────────────────────────
 static esp_err_t handle_scan(httpd_req_t* req) {
     esp_wifi_scan_start(NULL, true);
     uint16_t ap_num = 0;
@@ -78,7 +74,6 @@ static esp_err_t handle_scan(httpd_req_t* req) {
 
     wifi_ap_record_t* aps = calloc(ap_num, sizeof(wifi_ap_record_t));
     if (!aps) {
-        ESP_LOGE(TAG, "scan buffer allocation failed");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
         return ESP_FAIL;
     }
@@ -111,14 +106,14 @@ static esp_err_t handle_prov(httpd_req_t* req) {
     char ip_mode_s[4] = {0}, ip_s[20] = {0}, mask_s[20] = {0}, gw_s[20] = {0};
     char dns1_s[20] = {0}, dns2_s[20] = {0};
 
-    extract_field(body, "ssid", ssid, sizeof(ssid));
-    extract_field(body, "pass", pass, sizeof(pass));
+    extract_field(body, "ssid",    ssid,      sizeof(ssid));
+    extract_field(body, "pass",    pass,      sizeof(pass));
     extract_field(body, "ip_mode", ip_mode_s, sizeof(ip_mode_s));
-    extract_field(body, "ip", ip_s, sizeof(ip_s));
-    extract_field(body, "mask", mask_s, sizeof(mask_s));
-    extract_field(body, "gw", gw_s, sizeof(gw_s));
-    extract_field(body, "dns1", dns1_s, sizeof(dns1_s));
-    extract_field(body, "dns2", dns2_s, sizeof(dns2_s));
+    extract_field(body, "ip",      ip_s,      sizeof(ip_s));
+    extract_field(body, "mask",    mask_s,    sizeof(mask_s));
+    extract_field(body, "gw",      gw_s,      sizeof(gw_s));
+    extract_field(body, "dns1",    dns1_s,    sizeof(dns1_s));
+    extract_field(body, "dns2",    dns2_s,    sizeof(dns2_s));
 
     if (strlen(ssid) == 0) {
         httpd_resp_set_type(req, "application/json");
@@ -168,9 +163,7 @@ static esp_err_t handle_catch(httpd_req_t* req) {
     return ESP_OK;
 }
 
-/**
- * DNS 劫持任务，实现 Captive Portal
- */
+// ── DNS 劫持任务（Captive Portal）────────────────────────────────────────────
 static void dns_task(void* arg) {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
@@ -178,7 +171,11 @@ static void dns_task(void* arg) {
         vTaskDelete(NULL);
         return;
     }
-    struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(53), .sin_addr.s_addr = htonl(INADDR_ANY)};
+    struct sockaddr_in addr = {
+        .sin_family      = AF_INET,
+        .sin_port        = htons(53),
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+    };
     if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         ESP_LOGE(TAG, "dns socket bind failed");
         close(sock);
@@ -196,44 +193,37 @@ static void dns_task(void* arg) {
 
         uint8_t resp[512];
         memcpy(resp, buf, n);
-        resp[2]     = 0x81;
-        resp[3]     = 0x80;
-        resp[6]     = 0x00;
-        resp[7]     = 0x01;
-        int pos     = n;
-        resp[pos++] = 0xC0;
-        resp[pos++] = 0x0C;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x00;
-        resp[pos++] = 60;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x04;
-        resp[pos++] = 10;
-        resp[pos++] = 10;
-        resp[pos++] = 10;
-        resp[pos++] = 10;
+        resp[2] = 0x81; resp[3] = 0x80;
+        resp[6] = 0x00; resp[7] = 0x01;
+
+        int pos      = n;
+        resp[pos++]  = 0xC0; resp[pos++] = 0x0C;
+        resp[pos++]  = 0x00; resp[pos++] = 0x01;
+        resp[pos++]  = 0x00; resp[pos++] = 0x01;
+        resp[pos++]  = 0x00; resp[pos++] = 0x00;
+        resp[pos++]  = 0x00; resp[pos++] = 60;
+        resp[pos++]  = 0x00; resp[pos++] = 0x04;
+        resp[pos++]  = 10;   resp[pos++] = 10;
+        resp[pos++]  = 10;   resp[pos++] = 10;
+
         sendto(sock, resp, pos, 0, (struct sockaddr*)&cli, clen);
     }
 }
 
+// ── AP 模式主入口 ─────────────────────────────────────────────────────────────
 void wifi_prov_start_ap(void) {
     s_evt = xEventGroupCreate();
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
+    // 注意：esp_netif_init 和 esp_event_loop_create_default 已由 net_init() 调用
     esp_netif_t* ap_if = esp_netif_create_default_wifi_ap();
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    wifi_config_t ap_cfg = {.ap = {.channel = 1, .authmode = WIFI_AUTH_OPEN, .max_connection = 4}};
+    wifi_config_t ap_cfg = {
+        .ap = {.channel = 1, .authmode = WIFI_AUTH_OPEN, .max_connection = 4},
+    };
     strlcpy((char*)ap_cfg.ap.ssid, WIFI_AP_SSID, sizeof(ap_cfg.ap.ssid));
     ap_cfg.ap.ssid_len = strlen((char*)ap_cfg.ap.ssid);
 
@@ -249,7 +239,10 @@ void wifi_prov_start_ap(void) {
     };
     ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_if, &ip));
 
-    esp_netif_dns_info_t dns = {.ip.u_addr.ip4.addr = ESP_IP4TOADDR(10, 10, 10, 10), .ip.type = IPADDR_TYPE_V4};
+    esp_netif_dns_info_t dns = {
+        .ip.u_addr.ip4.addr = ESP_IP4TOADDR(10, 10, 10, 10),
+        .ip.type            = IPADDR_TYPE_V4,
+    };
     ESP_ERROR_CHECK(esp_netif_set_dns_info(ap_if, ESP_NETIF_DNS_MAIN, &dns));
     ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_if));
 
@@ -260,11 +253,11 @@ void wifi_prov_start_ap(void) {
     hcfg.uri_match_fn     = httpd_uri_match_wildcard;
     httpd_handle_t srv    = NULL;
     if (httpd_start(&srv, &hcfg) == ESP_OK) {
-        httpd_uri_t u_root  = {.uri = "/", .method = HTTP_GET, .handler = handle_root};
-        httpd_uri_t u_css   = {.uri = "/style.css", .method = HTTP_GET, .handler = handle_css};
-        httpd_uri_t u_scan  = {.uri = "/api/scan", .method = HTTP_GET, .handler = handle_scan};
-        httpd_uri_t u_prov  = {.uri = "/api/prov", .method = HTTP_POST, .handler = handle_prov};
-        httpd_uri_t u_catch = {.uri = "/*", .method = HTTP_GET, .handler = handle_catch};
+        httpd_uri_t u_root  = {.uri = "/",          .method = HTTP_GET,  .handler = handle_root};
+        httpd_uri_t u_css   = {.uri = "/style.css", .method = HTTP_GET,  .handler = handle_css};
+        httpd_uri_t u_scan  = {.uri = "/api/scan",  .method = HTTP_GET,  .handler = handle_scan};
+        httpd_uri_t u_prov  = {.uri = "/api/prov",  .method = HTTP_POST, .handler = handle_prov};
+        httpd_uri_t u_catch = {.uri = "/*",         .method = HTTP_GET,  .handler = handle_catch};
 
         httpd_register_uri_handler(srv, &u_root);
         httpd_register_uri_handler(srv, &u_css);

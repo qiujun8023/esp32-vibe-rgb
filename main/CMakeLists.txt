@@ -2,12 +2,22 @@ idf_component_register(
     SRCS
         "main.c"
         "settings.c"
-        "led.c"
+        "led_map.c"
+        "led_fb.c"
+        "led_hw.c"
         "mic.c"
-        "effects.c"
-        "wifi_prov.c"
-        "wifi_ctrl.c"
-    INCLUDE_DIRS "."
+        "effects/effects_core.c"
+        "effects/fx_freq.c"
+        "effects/fx_gravity.c"
+        "effects/fx_noise.c"
+        "effects/fx_misc.c"
+        "net/net_init.c"
+        "net/wifi_sta.c"
+        "net/wifi_prov.c"
+        "net/settings_json.c"
+        "net/ws_push.c"
+        "net/http_server.c"
+    INCLUDE_DIRS "." "effects" "net"
     REQUIRES
         driver
         esp_wifi

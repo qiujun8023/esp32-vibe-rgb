@@ -1,588 +1,675 @@
-// 效果元数据（与 effects.c EFFECT_INFO 对齐）
+/**
+ * ESP32 Vibe RGB - 控制界面
+ */
+
+// ============================================================
+// 常量
+// ============================================================
+
 const EFFECTS = [
-  {id:0,  name:"Spectrum",    c1:"色彩(0=频段/1=高度)", c2:"峰值点",  c3:"镜像"},
-  {id:1,  name:"Waterfall",   c1:"饱和度",   c2:"消退速率",c3:""},
-  {id:2,  name:"Gravimeter",  c1:"保持时间", c2:"峰值亮度",c3:""},
-  {id:3,  name:"Funky Plank", c1:"下落速度", c2:"间距",    c3:""},
-  {id:4,  name:"Scroll",      c1:"滚动方向", c2:"",        c3:""},
-  {id:5,  name:"CenterBars",  c1:"色彩模式", c2:"",        c3:""},
-  {id:6,  name:"GravFreq",    c1:"重力强度", c2:"灵敏度",  c3:""},
-  {id:7,  name:"Super Freq",  c1:"线条数量", c2:"",        c3:""},
-  {id:8,  name:"Ripple",      c1:"扩散速度", c2:"最大涟漪",c3:""},
-  {id:9,  name:"Juggles",     c1:"球数量",   c2:"消退速率",c3:""},
-  {id:10, name:"Blurz",       c1:"色块数量", c2:"模糊度",  c3:""},
-  {id:11, name:"DJ Light",    c1:"扫描速度", c2:"闪光时长",c3:""},
-  {id:12, name:"Ripplepeak",  c1:"扩散速度", c2:"触发阈值",c3:""},
-  {id:13, name:"Freqwave",    c1:"波动幅度", c2:"",        c3:""},
-  {id:14, name:"Freqmap",     c1:"饱和度",   c2:"",        c3:""},
-  {id:15, name:"Noisemove",   c1:"噪声缩放", c2:"亮度调制",c3:""},
-  {id:16, name:"Rocktaves",   c1:"八度数量", c2:"",        c3:""},
-  {id:17, name:"Energy",      c1:"响应速度", c2:"最低亮度",c3:"径向模式"},
-  {id:18, name:"Plasma",      c1:"复杂度",   c2:"音频调制",c3:""},
-  {id:19, name:"Swirl",       c1:"旋转速度", c2:"音频调制",c3:""},
-  {id:20, name:"Waverly",     c1:"波动数量", c2:"振幅",    c3:""},
-  {id:21, name:"Fire",        c1:"冷却速率", c2:"点燃率",  c3:"音频调制"},
+  {id:0,  name:"频谱柱",   c1:"色彩模式", c2:"显示峰值", c3:"镜像模式"},
+  {id:1,  name:"频谱均衡", c1:"消退速率", c2:"显示峰值", c3:""},
+  {id:2,  name:"中心柱",   c1:"水平居中", c2:"垂直居中", c3:"颜色方向"},
+  {id:3,  name:"频谱映射", c1:"增益调节", c2:"",         c3:""},
+  {id:4,  name:"瀑布流",   c1:"颜色偏移", c2:"消退速率", c3:""},
+  {id:5,  name:"重力计",   c1:"下落速度", c2:"峰值保持", c3:""},
+  {id:6,  name:"重力中心", c1:"下落速度", c2:"峰值保持", c3:""},
+  {id:7,  name:"重力偏心", c1:"下落速度", c2:"峰值保持", c3:""},
+  {id:8,  name:"重力频率", c1:"下落速度", c2:"峰值保持", c3:""},
+  {id:9,  name:"下落木板", c1:"下落速度", c2:"频段数量", c3:""},
+  {id:10, name:"矩阵像素", c1:"滚动速度", c2:"亮度增益", c3:""},
+  {id:11, name:"频率波",   c1:"波动速度", c2:"扩散强度", c3:""},
+  {id:12, name:"像素波",   c1:"波动速度", c2:"亮度增益", c3:""},
+  {id:13, name:"涟漪峰值", c1:"涟漪数量", c2:"触发阈值", c3:""},
+  {id:14, name:"弹跳球",   c1:"球体数量", c2:"轨迹消退", c3:""},
+  {id:15, name:"水塘峰值", c1:"消退速率", c2:"触发阈值", c3:""},
+  {id:16, name:"水塘",     c1:"消退速率", c2:"闪烁大小", c3:""},
+  {id:17, name:"频率像素", c1:"消退速率", c2:"像素数量", c3:""},
+  {id:18, name:"频率映射", c1:"消退速率", c2:"",         c3:""},
+  {id:19, name:"随机像素", c1:"像素数量", c2:"颜色偏移", c3:""},
+  {id:20, name:"噪声火焰", c1:"火焰速度", c2:"亮度阈值", c3:""},
+  {id:21, name:"等离子",   c1:"相位速度", c2:"亮度阈值", c3:""},
+  {id:22, name:"极光",     c1:"流动速度", c2:"色彩跨度", c3:""},
+  {id:23, name:"中间噪声", c1:"消退速率", c2:"灵敏度",   c3:""},
+  {id:24, name:"噪声计",   c1:"消退速率", c2:"灵敏度",   c3:""},
+  {id:25, name:"噪声移动", c1:"移动速度", c2:"频段数量", c3:""},
+  {id:26, name:"模糊色块", c1:"消退速率", c2:"模糊强度", c3:""},
+  {id:27, name:"DJ灯光",   c1:"扫描速度", c2:"闪烁时长", c3:""}
 ];
-const PALETTES = ["Rainbow","Sunset","Ocean","Lava","Forest","Party","Heat","Mono"];
 
-// 全局状态
-var cfg = {};
-var ws = null;
-var wsReconnectTimer = null;
-var matW = 8, matH = 8;
+const PALETTES = ["彩虹", "派对", "日落", "岩浆", "热力", "梦幻", "海洋", "极光", "森林", "赛博", "单色", "随机"];
 
+// ============================================================
+// 应用状态
+// ============================================================
+
+const App = {
+  socket: null,
+  reconnectTimer: null,
+  
+  matrixCanvas: null,
+  matrixCtx: null,
+  previewCanvas: null,
+  previewCtx: null,
+  
+  state: {
+    // LED 配置
+    led_w: 8,
+    led_h: 8,
+    led_gpio: 16,
+    led_serpentine: 1,
+    led_start: 0,
+    led_rotation: 0,
+    brightness: 160,
+    
+    // 效果
+    effect: 0,
+    palette: 0,
+    speed: 128,
+    intensity: 128,
+    custom1: 128,
+    custom2: 128,
+    custom3: 128,
+    freq_dir: 0,
+    
+    // 音频
+    agc_mode: 1,
+    gain: 40,
+    squelch: 5,
+    fft_smooth: 100,
+    mic_ws: 4,
+    mic_sck: 5,
+    mic_din: 6,
+    
+    // 网络
+    ssid: '',
+    ip_mode: 0,
+    
+    // 实时状态（只读，不发送）
+    fps: null,
+    volume: null,
+    heap: null,
+    rssi: null,
+    uptime: null,
+    pixels: null,
+    bands: null
+  }
+};
+
+// ============================================================
 // 初始化
-(function init() {
-  buildEffectGrid();
-  buildPaletteGrid();
-  bindEvents();
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', init);
+
+function init() {
+  initCanvas();
+  initEffectGrid();
+  initPaletteGrid();
+  initTabs();
+  initControls();
   connectWebSocket();
-})();
-
-function buildEffectGrid() {
-  var grid = document.getElementById('fx-grid');
-  EFFECTS.forEach(function(fx) {
-    var btn = document.createElement('button');
-    btn.className = 'fx-btn';
-    btn.id = 'fx-' + fx.id;
-    btn.textContent = fx.name;
-    btn.dataset.effect = fx.id;
-    grid.appendChild(btn);
-  });
 }
 
-function buildPaletteGrid() {
-  var grid = document.getElementById('palette-grid');
-  PALETTES.forEach(function(name, i) {
-    var btn = document.createElement('button');
-    btn.className = 'fx-btn';
-    btn.id = 'pal-' + i;
-    btn.textContent = name;
-    btn.dataset.palette = i;
-    grid.appendChild(btn);
-  });
+function initCanvas() {
+  App.matrixCanvas = document.getElementById('matrix-canvas');
+  if (App.matrixCanvas) {
+    App.matrixCtx = App.matrixCanvas.getContext('2d');
+  }
+  
+  App.previewCanvas = document.getElementById('led-preview');
+  if (App.previewCanvas) {
+    App.previewCtx = App.previewCanvas.getContext('2d');
+  }
 }
 
-function bindEvents() {
-  // 标签页切换
-  document.querySelectorAll('.tab').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      switchTab(this.dataset.tab);
-    });
-  });
-
-  // 效果按钮
-  document.getElementById('fx-grid').addEventListener('click', function(e) {
+function initEffectGrid() {
+  const grid = document.getElementById('fx-grid');
+  if (!grid) return;
+  
+  grid.innerHTML = EFFECTS.map(e => 
+    `<div class="fx-btn" data-effect="${e.id}">${e.name}</div>`
+  ).join('');
+  
+  grid.addEventListener('click', e => {
     if (e.target.classList.contains('fx-btn')) {
-      setEffect(parseInt(e.target.dataset.effect));
+      App.state.effect = parseInt(e.target.dataset.effect);
+      syncUI();
+      sendUpdate();
     }
   });
-
-  // 调色板按钮
-  document.getElementById('palette-grid').addEventListener('click', function(e) {
-    if (e.target.classList.contains('fx-btn')) {
-      setPalette(parseInt(e.target.dataset.palette));
-    }
-  });
-
-  // AGC按钮组
-  document.querySelectorAll('#agc0, #agc1, #agc2').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      setAGC(parseInt(this.dataset.value));
-    });
-  });
-
-  // 频率方向按钮组
-  document.querySelectorAll('#dir0, #dir1').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      setFreqDir(parseInt(this.dataset.value));
-    });
-  });
-
-  // 滑块
-  document.querySelectorAll('input[type="range"]').forEach(function(input) {
-    input.addEventListener('input', function() {
-      onSliderChange(this.id, parseInt(this.value));
-    });
-  });
-
-  // 数值显示（点击编辑）
-  document.querySelectorAll('.val-display').forEach(function(span) {
-    span.addEventListener('click', function() {
-      editValue(this);
-    });
-  });
-
-  // LED配置变化时更新预览
-  ['led_w', 'led_h', 'led_serpentine', 'led_start', 'led_rotation'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('change', updateLedPreview);
-  });
-
-  // IP模式切换
-  document.getElementById('ip_mode').addEventListener('change', toggleStaticFields);
 }
 
-// WebSocket连接
+function initPaletteGrid() {
+  const grid = document.getElementById('palette-grid');
+  if (!grid) return;
+  
+  grid.innerHTML = PALETTES.map((name, i) => 
+    `<div class="fx-btn" data-palette="${i}">${name}</div>`
+  ).join('');
+  
+  grid.addEventListener('click', e => {
+    if (e.target.classList.contains('fx-btn')) {
+      App.state.palette = parseInt(e.target.dataset.palette);
+      syncUI();
+      sendUpdate();
+    }
+  });
+}
+
+function initTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tab);
+      });
+      
+      document.querySelectorAll('.tab-pane').forEach(p => {
+        p.classList.toggle('active', p.id === `tab-${tab}`);
+      });
+    });
+  });
+}
+
+function initControls() {
+  // 滑块 + 数值输入联动
+  document.querySelectorAll('.param-row').forEach(row => {
+    const slider = row.querySelector('.param-slider');
+    const input = row.querySelector('.param-value');
+    
+    if (!slider || !input) return;
+    
+    // 滑块拖动时更新输入框
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+    });
+    
+    // 滑块改变时发送更新
+    slider.addEventListener('change', () => {
+      App.state[slider.id] = parseInt(slider.value);
+      sendUpdate();
+    });
+    
+    // 数值输入框可编辑
+    input.addEventListener('focus', () => {
+      input.classList.add('editing');
+    });
+    
+    input.addEventListener('blur', () => {
+      input.classList.remove('editing');
+      // 校验范围
+      const val = Math.max(slider.min, Math.min(slider.max, parseInt(input.value) || slider.min));
+      input.value = val;
+      slider.value = val;
+      App.state[slider.id] = val;
+      sendUpdate();
+    });
+    
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        input.blur();
+      }
+    });
+  });
+  
+  // 选项按钮
+  document.querySelectorAll('.choice-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = parseInt(btn.dataset.value);
+      
+      if (btn.id.startsWith('dir')) {
+        App.state.freq_dir = val;
+      } else if (btn.id.startsWith('agc')) {
+        App.state.agc_mode = val;
+      }
+      
+      syncUI();
+      sendUpdate();
+    });
+  });
+  
+  // 输入字段
+  document.querySelectorAll('.field-input, .field-select').forEach(input => {
+    input.addEventListener('change', () => {
+      if (input.type === 'number') {
+        App.state[input.id] = parseInt(input.value) || 0;
+      } else {
+        App.state[input.id] = input.value;
+      }
+      sendUpdate();
+      
+      if (input.id === 'ip_mode') {
+        document.getElementById('static-ip-fields')
+          ?.classList.toggle('show', input.value === '1');
+      }
+    });
+  });
+}
+
+// ============================================================
+// WebSocket
+// ============================================================
+
 function connectWebSocket() {
-  if (ws) { try { ws.close(); } catch(e) {} }
-
-  ws = new WebSocket('ws://' + location.host + '/ws');
-
-  ws.onopen = function() {
-    setConnectionStatus('connected');
-    if (wsReconnectTimer) {
-      clearTimeout(wsReconnectTimer);
-      wsReconnectTimer = null;
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${location.host}/ws`;
+  
+  try {
+    App.socket = new WebSocket(url);
+  } catch (e) {
+    console.error('WebSocket 创建失败:', e);
+    scheduleReconnect();
+    return;
+  }
+  
+  App.socket.onopen = () => {
+    updateConnectionStatus('connected', '已连接');
+    App.socket.send(JSON.stringify({ get_cfg: true }));
+  };
+  
+  App.socket.onmessage = e => {
+    try {
+      const data = JSON.parse(e.data);
+      
+      // 合并所有状态（包括 pixels 消息中的 fps/volume 等）
+      Object.assign(App.state, data);
+      
+      // 如果有像素数据，渲染预览
+      if (data.pixels) {
+        renderMatrix(data.pixels);
+      }
+      
+      // 同步 UI（排除只读字段）
+      syncUI();
+    } catch (err) {
+      console.error('消息解析失败:', err);
     }
   };
-
-  ws.onclose = function() {
-    setConnectionStatus('disconnected');
-    if (!wsReconnectTimer) {
-      wsReconnectTimer = setTimeout(function() {
-        wsReconnectTimer = null;
-        connectWebSocket();
-      }, 2000);
-    }
+  
+  App.socket.onclose = () => {
+    updateConnectionStatus('disconnected', '已断开');
+    scheduleReconnect();
   };
-
-  ws.onerror = function() {
-    setConnectionStatus('disconnected');
-    try { ws.close(); } catch(e) {}
-  };
-
-  ws.onmessage = function(e) {
-    var data = JSON.parse(e.data);
-
-    // 设置包（包含ssid字段）
-    if (data.ssid !== undefined) {
-      loadConfig(data);
-      return;
-    }
-
-    // 状态推送
-    if (data.fps !== undefined) updateStatus('fps', data.fps + ' fps');
-    if (data.volume !== undefined) updateStatus('vol', '音量 ' + Math.round(data.volume * 100) + '%');
-    if (data.pixels !== undefined) renderMatrix(data.pixels);
-    if (cfg.effect !== undefined) {
-      updateStatus('effect', EFFECTS[cfg.effect] ? EFFECTS[cfg.effect].name : '-');
-    }
+  
+  App.socket.onerror = e => {
+    console.error('WebSocket 错误:', e);
   };
 }
 
-function setConnectionStatus(status) {
-  var el = document.getElementById('st-conn');
-  el.className = 'status-dot ' + status;
-  el.textContent = status === 'connected' ? '已连接' :
-                   status === 'disconnected' ? '已断开' : '连接中';
+function scheduleReconnect() {
+  if (App.reconnectTimer) clearTimeout(App.reconnectTimer);
+  App.reconnectTimer = setTimeout(connectWebSocket, 2000);
 }
 
-function updateStatus(id, text) {
-  var el = document.getElementById('st-' + id);
+function sendUpdate() {
+  if (!App.socket || App.socket.readyState !== WebSocket.OPEN) return;
+  
+  // 只发送可配置字段，排除只读状态
+  const { fps, volume, heap, rssi, uptime, pixels, bands, beat, ...payload } = App.state;
+  App.socket.send(JSON.stringify(payload));
+}
+
+function updateConnectionStatus(status, text) {
+  const indicator = document.getElementById('st-conn-indicator');
+  const label = document.getElementById('st-conn');
+  
+  if (indicator) {
+    indicator.className = `status-indicator ${status}`;
+  }
+  if (label) {
+    label.textContent = text;
+  }
+}
+
+// ============================================================
+// UI 同步
+// ============================================================
+
+function syncUI() {
+  const s = App.state;
+  
+  // 效果按钮
+  document.querySelectorAll('[data-effect]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.effect) === s.effect);
+  });
+  
+  // 调色板按钮
+  document.querySelectorAll('[data-palette]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.palette) === s.palette);
+  });
+  
+  // 方向按钮
+  document.querySelectorAll('[id^="dir"]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.value) === s.freq_dir);
+  });
+  
+  // AGC 按钮
+  document.querySelectorAll('[id^="agc"]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.value) === s.agc_mode);
+  });
+  
+  // 滑块和数值
+  syncSlider('speed', s.speed);
+  syncSlider('intensity', s.intensity);
+  syncSlider('custom1', s.custom1);
+  syncSlider('custom2', s.custom2);
+  syncSlider('custom3', s.custom3);
+  syncSlider('brightness', s.brightness);
+  syncSlider('gain', s.gain);
+  syncSlider('squelch', s.squelch);
+  syncSlider('fft_smooth', s.fft_smooth);
+  
+  // 输入字段
+  syncField('led_gpio', s.led_gpio);
+  syncField('led_w', s.led_w);
+  syncField('led_h', s.led_h);
+  syncField('mic_ws', s.mic_ws);
+  syncField('mic_sck', s.mic_sck);
+  syncField('mic_din', s.mic_din);
+  
+  // 下拉框
+  syncSelect('led_serpentine', s.led_serpentine);
+  syncSelect('led_start', s.led_start);
+  syncSelect('led_rotation', s.led_rotation);
+  
+  // WiFi
+  if (s.ssid) syncField('cfg_ssid', s.ssid);
+  
+  // IP 模式
+  if (s.ip_mode !== undefined) {
+    syncSelect('ip_mode', s.ip_mode);
+    document.getElementById('static-ip-fields')?.classList.toggle('show', s.ip_mode === 1);
+  }
+  
+  // 效果参数标签
+  updateEffectParams();
+  
+  // 实时状态显示
+  updateStatusDisplay();
+  
+  // LED 预览
+  renderLedPreview();
+}
+
+function syncSlider(id, value) {
+  if (value === undefined) return;
+  
+  const slider = document.getElementById(id);
+  const input = document.getElementById(`${id}_v`);
+  
+  // 避免覆盖正在编辑的输入框
+  if (slider && document.activeElement !== slider) {
+    slider.value = value;
+  }
+  if (input && !input.classList.contains('editing')) {
+    input.value = value;
+  }
+}
+
+function syncField(id, value) {
+  if (value === undefined) return;
+  const el = document.getElementById(id);
+  if (el && document.activeElement !== el) {
+    el.value = value;
+  }
+}
+
+function syncSelect(id, value) {
+  if (value === undefined) return;
+  const el = document.getElementById(id);
+  if (el && document.activeElement !== el) {
+    el.value = value;
+  }
+}
+
+function updateEffectParams() {
+  const s = App.state;
+  const eff = EFFECTS.find(e => e.id === s.effect);
+  
+  if (eff) {
+    setText('st-effect', eff.name);
+    
+    toggleParamRow('c1', eff.c1);
+    toggleParamRow('c2', eff.c2);
+    toggleParamRow('c3', eff.c3);
+  }
+}
+
+function toggleParamRow(prefix, label) {
+  const row = document.getElementById(`${prefix}-row`);
+  const lbl = document.getElementById(`${prefix}-lbl`);
+  
+  if (row) {
+    row.style.display = label && label.trim() ? '' : 'none';
+  }
+  if (lbl && label) {
+    lbl.textContent = label;
+  }
+}
+
+function updateStatusDisplay() {
+  const s = App.state;
+  
+  // 帧率
+  if (s.fps !== undefined && s.fps !== null) {
+    setText('st-fps', `${s.fps} fps`);
+  }
+  
+  // 音量
+  if (s.volume !== undefined && s.volume !== null) {
+    const vol = Math.round(s.volume * 100);
+    setText('st-vol', `${vol}%`);
+  }
+  
+  // 运行时间
+  if (s.uptime !== undefined && s.uptime !== null) {
+    const h = Math.floor(s.uptime / 3600);
+    const m = Math.floor((s.uptime % 3600) / 60);
+    const sec = s.uptime % 60;
+    setText('st-uptime', `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`);
+  }
+  
+  // 内存
+  if (s.heap !== undefined && s.heap !== null) {
+    setText('st-heap', `${Math.round(s.heap / 1024)} KB`);
+  }
+  
+  // 信号
+  if (s.rssi !== undefined && s.rssi !== null) {
+    setText('st-rssi', `${s.rssi} dBm`);
+  }
+}
+
+// ============================================================
+// Canvas 渲染
+// ============================================================
+
+function renderMatrix(hex) {
+  if (!App.matrixCtx || !App.matrixCanvas || !hex) return;
+  
+  const w = App.state.led_w || 8;
+  const h = App.state.led_h || 8;
+  
+  // 自适应单元格大小
+  const maxDim = Math.max(w, h);
+  const maxSize = Math.min(280, window.innerWidth - 48);
+  const cellSize = Math.max(4, Math.floor(maxSize / maxDim));
+  
+  const canvasW = w * cellSize;
+  const canvasH = h * cellSize;
+  
+  if (App.matrixCanvas.width !== canvasW || App.matrixCanvas.height !== canvasH) {
+    App.matrixCanvas.width = canvasW;
+    App.matrixCanvas.height = canvasH;
+  }
+  
+  // 清空
+  App.matrixCtx.fillStyle = '#000';
+  App.matrixCtx.fillRect(0, 0, canvasW, canvasH);
+  
+  // 绘制像素
+  const count = Math.min(hex.length / 6, w * h);
+  
+  for (let i = 0; i < count; i++) {
+    const r = parseInt(hex.substr(i * 6, 2), 16);
+    const g = parseInt(hex.substr(i * 6 + 2, 2), 16);
+    const b = parseInt(hex.substr(i * 6 + 4, 2), 16);
+    
+    const x = i % w;
+    const y = Math.floor(i / w);
+    
+    if (y >= h) continue;
+    
+    // Y 轴翻转
+    App.matrixCtx.fillStyle = `rgb(${r},${g},${b})`;
+    App.matrixCtx.fillRect(x * cellSize, (h - 1 - y) * cellSize, cellSize - 1, cellSize - 1);
+  }
+}
+
+function renderLedPreview() {
+  if (!App.previewCtx || !App.previewCanvas) return;
+  
+  const w = App.state.led_w || 8;
+  const h = App.state.led_h || 8;
+  
+  // 较大的单元格，带连线
+  const maxDim = Math.max(w, h);
+  const maxSize = Math.min(260, window.innerWidth - 48);
+  const cellSize = Math.max(20, Math.floor(maxSize / maxDim));
+  
+  const canvasW = w * cellSize;
+  const canvasH = h * cellSize;
+  
+  if (App.previewCanvas.width !== canvasW || App.previewCanvas.height !== canvasH) {
+    App.previewCanvas.width = canvasW;
+    App.previewCanvas.height = canvasH;
+  }
+  
+  const ctx = App.previewCtx;
+  
+  // 背景
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+  
+  const total = w * h;
+  const points = [];
+  
+  // 计算所有 LED 坐标
+  for (let i = 0; i < total; i++) {
+    const coord = computeLedCoord(i, w, h);
+    points.push({
+      x: coord.x * cellSize + cellSize / 2,
+      y: (h - 1 - coord.y) * cellSize + cellSize / 2
+    });
+  }
+  
+  // 绘制连线
+  ctx.strokeStyle = 'rgba(34, 211, 238, 0.3)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  
+  for (let i = 0; i < points.length; i++) {
+    if (i === 0) {
+      ctx.moveTo(points[i].x, points[i].y);
+    } else {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+  }
+  ctx.stroke();
+  
+  // 绘制 LED 节点和序号
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    
+    // 圆形节点
+    ctx.fillStyle = 'rgba(34, 211, 238, 0.15)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, cellSize / 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    // 序号
+    ctx.fillStyle = '#22d3ee';
+    ctx.font = `${Math.max(10, cellSize / 3)}px JetBrains Mono, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i), p.x, p.y);
+  }
+}
+
+function computeLedCoord(index, w, h) {
+  const serpentine = App.state.led_serpentine;
+  const start = App.state.led_start;
+  
+  let x = index % w;
+  let y = Math.floor(index / w);
+  
+  // 蛇形布线：偶数行正向，奇数行反向
+  if (serpentine && (y % 2 === 1)) {
+    x = w - 1 - x;
+  }
+  
+  // 起始角调整
+  switch (start) {
+    case 1: x = w - 1 - x; break;            // 右下
+    case 2: y = h - 1 - y; break;            // 左上
+    case 3: x = w - 1 - x; y = h - 1 - y; break; // 右上
+  }
+  
+  return { x, y };
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+function setText(id, text) {
+  const el = document.getElementById(id);
   if (el) el.textContent = text;
 }
 
-// 矩阵渲染
-function renderMatrix(hex) {
-  var canvas = document.getElementById('matrix-canvas');
-  var ctx = canvas.getContext('2d');
-  var n = hex.length / 6;
-  var cols = matW, rows = matH;
-
-  // 动态调整canvas尺寸
-  var cellSize = Math.floor(160 / Math.max(cols, rows));
-  canvas.width = cols * cellSize;
-  canvas.height = rows * cellSize;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  for (var i = 0; i < n && i < cols * rows; i++) {
-    var r = parseInt(hex.substr(i * 6, 2), 16);
-    var g = parseInt(hex.substr(i * 6 + 2, 2), 16);
-    var b = parseInt(hex.substr(i * 6 + 4, 2), 16);
-    var x = (i % cols) * cellSize;
-    var y = (rows - 1 - Math.floor(i / cols)) * cellSize;
-    ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
-    ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+function showToast(msg) {
+  const toast = document.getElementById('sys-msg');
+  if (toast) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
   }
 }
 
-// 加载配置到UI
-function loadConfig(data) {
-  cfg = data;
-  matW = data.led_w || 8;
-  matH = data.led_h || 8;
+// ============================================================
+// 全局操作
+// ============================================================
 
-  // 滑块
-  setUIValue('speed', data.speed);
-  setUIValue('intensity', data.intensity);
-  setUIValue('custom1', data.custom1);
-  setUIValue('custom2', data.custom2);
-  setUIValue('custom3', data.custom3);
-  setUIValue('brightness', data.brightness);
-  setUIValue('gain', Math.round(data.gain || 40));
-  setUIValue('squelch', data.squelch);
-  setUIValue('fft_smooth', data.fft_smooth);
-
-  // 字段
-  setFieldValue('led_gpio', data.led_gpio);
-  setFieldValue('led_w', data.led_w);
-  setFieldValue('led_h', data.led_h);
-  setFieldValue('led_serpentine', data.led_serpentine);
-  setFieldValue('led_start', data.led_start);
-  setFieldValue('led_rotation', data.led_rotation || 0);
-  setFieldValue('mic_sck', data.mic_sck);
-  setFieldValue('mic_ws', data.mic_ws);
-  setFieldValue('mic_din', data.mic_din);
-  setFieldValue('cfg_ssid', data.ssid || '');
-  setFieldValue('ip_mode', data.ip_mode);
-  setFieldValue('s_ip', data.s_ip || '');
-  setFieldValue('s_mask', data.s_mask || '');
-  setFieldValue('s_gw', data.s_gw || '');
-  setFieldValue('s_dns1', data.s_dns1 || '');
-  setFieldValue('s_dns2', data.s_dns2 || '');
-
-  // AGC
-  updateButtonGroupById(['agc0', 'agc1', 'agc2'], data.agc_mode);
-
-  // 效果
-  updateEffectButtons(data.effect);
-  updateEffectLabels(data.effect);
-
-  // 调色板
-  updatePaletteButtons(data.palette);
-
-  // 频率方向
-  updateButtonGroupById(['dir0', 'dir1'], data.freq_dir);
-
-  toggleStaticFields();
-  updateLedPreview();
-}
-
-function setUIValue(id, value) {
-  var input = document.getElementById(id);
-  var display = document.getElementById(id + '_v');
-  if (input) input.value = value;
-  if (display) display.textContent = value;
-}
-
-function setFieldValue(id, value) {
-  var el = document.getElementById(id);
-  if (el) el.value = value;
-}
-
-function updateButtonGroupById(ids, activeValue) {
-  ids.forEach(function(id) {
-    var btn = document.getElementById(id);
-    if (btn) {
-      var v = parseInt(btn.dataset.value);
-      btn.classList.toggle('active', v === activeValue);
-    }
-  });
-}
-
-function updateEffectButtons(effectId) {
-  document.querySelectorAll('#fx-grid .fx-btn').forEach(function(btn) {
-    var id = parseInt(btn.dataset.effect);
-    btn.classList.toggle('active', id === effectId);
-  });
-}
-
-function updatePaletteButtons(paletteId) {
-  document.querySelectorAll('#palette-grid .fx-btn').forEach(function(btn) {
-    var id = parseInt(btn.dataset.palette);
-    btn.classList.toggle('active', id === paletteId);
-  });
-}
-
-function updateEffectLabels(effectId) {
-  var fx = EFFECTS[effectId] || {};
-  ['c1', 'c2', 'c3'].forEach(function(c, i) {
-    var row = document.getElementById(c + '-row');
-    var lbl = document.getElementById(c + '-lbl');
-    if (row) row.style.display = fx[c] ? '' : 'none';
-    if (lbl) lbl.textContent = fx[c] || '';
-  });
-}
-
-// 控件回调
-function onSliderChange(key, value) {
-  var display = document.getElementById(key + '_v');
-  if (display && !display.querySelector('input')) {
-    display.textContent = value;
+window.saveAllSettings = function() {
+  if (App.socket && App.socket.readyState === WebSocket.OPEN) {
+    App.socket.send(JSON.stringify({ save: true }));
+    showToast('配置已保存');
   }
-  cfg[key] = value;
-  sendWS(key, value);
-}
+};
 
-function editValue(span) {
-  if (span.querySelector('input')) return;
-
-  var key = span.dataset.key;
-  var minVal = parseInt(span.dataset.min) || 0;
-  var maxVal = parseInt(span.dataset.max) || 255;
-  var oldVal = parseInt(span.textContent) || 0;
-
-  span.innerHTML = '<input type="number" value="' + oldVal + '" min="' + minVal + '" max="' + maxVal + '">';
-  var input = span.querySelector('input');
-  input.focus();
-  input.select();
-
-  function finish() {
-    var v = parseInt(input.value) || oldVal;
-    v = Math.max(minVal, Math.min(maxVal, v));
-    span.textContent = v;
-    cfg[key] = v;
-    document.getElementById(key).value = v;
-    sendWS(key, v);
-  }
-
-  input.onkeydown = function(e) {
-    if (e.key === 'Enter') { input.blur(); return false; }
-    if (e.key === 'Escape') { span.textContent = oldVal; return false; }
-  };
-  input.onblur = finish;
-}
-
-function setEffect(id) {
-  cfg.effect = id;
-  updateEffectButtons(id);
-  updateEffectLabels(id);
-  sendWS('effect', id);
-}
-
-function setPalette(id) {
-  cfg.palette = id;
-  updatePaletteButtons(id);
-  sendWS('palette', id);
-}
-
-function setAGC(value) {
-  cfg.agc_mode = value;
-  updateButtonGroupById(['agc0', 'agc1', 'agc2'], value);
-  sendWS('agc_mode', value);
-}
-
-function setFreqDir(value) {
-  cfg.freq_dir = value;
-  updateButtonGroupById(['dir0', 'dir1'], value);
-  sendWS('freq_dir', value);
-}
-
-function toggleStaticFields() {
-  var mode = document.getElementById('ip_mode').value;
-  var fields = document.getElementById('static-ip-fields');
-  fields.classList.toggle('show', mode === '1');
-}
-
-// WebSocket发送
-function sendWS(key, value) {
-  if (ws && ws.readyState === 1) {
-    var obj = {};
-    obj[key] = value;
-    ws.send(JSON.stringify(obj));
-  }
-}
-
-// 标签页切换
-function switchTab(tabId) {
-  document.querySelectorAll('.tab').forEach(function(t) {
-    t.classList.toggle('active', t.dataset.tab === tabId);
-  });
-  document.querySelectorAll('.tab-pane').forEach(function(p) {
-    p.classList.toggle('active', p.id === 'tab-' + tabId);
-  });
-}
-
-// 保存所有设置到Flash
-function saveAllSettings() {
-  setSysMsg('保存中...', '#8b949e');
-
-  var payload = {
-    // WiFi配置
-    ssid: document.getElementById('cfg_ssid').value,
-    pass_new: document.getElementById('pass_new').value,
-    ip_mode: parseInt(document.getElementById('ip_mode').value),
-    s_ip: document.getElementById('s_ip').value,
-    s_mask: document.getElementById('s_mask').value,
-    s_gw: document.getElementById('s_gw').value,
-    s_dns1: document.getElementById('s_dns1').value,
-    s_dns2: document.getElementById('s_dns2').value,
-    // LED配置
-    led_gpio: parseInt(document.getElementById('led_gpio').value) || 16,
-    led_w: parseInt(document.getElementById('led_w').value) || 8,
-    led_h: parseInt(document.getElementById('led_h').value) || 8,
-    led_serpentine: parseInt(document.getElementById('led_serpentine').value),
-    led_start: parseInt(document.getElementById('led_start').value),
-    led_rotation: parseInt(document.getElementById('led_rotation').value),
-    brightness: parseInt(document.getElementById('brightness').value) || 160,
-    // 麦克风配置
-    mic_sck: parseInt(document.getElementById('mic_sck').value) || 5,
-    mic_ws: parseInt(document.getElementById('mic_ws').value) || 4,
-    mic_din: parseInt(document.getElementById('mic_din').value) || 6,
-    // 音频参数
-    agc_mode: cfg.agc_mode || 1,
-    gain: parseFloat(document.getElementById('gain').value) || 15,
-    squelch: parseInt(document.getElementById('squelch').value) || 10,
-    fft_smooth: parseInt(document.getElementById('fft_smooth').value) || 100,
-    // 效果参数
-    effect: cfg.effect || 0,
-    palette: cfg.palette || 0,
-    speed: parseInt(document.getElementById('speed').value) || 128,
-    intensity: parseInt(document.getElementById('intensity').value) || 128,
-    custom1: parseInt(document.getElementById('custom1').value) || 128,
-    custom2: parseInt(document.getElementById('custom2').value) || 128,
-    custom3: parseInt(document.getElementById('custom3').value) || 128,
-    freq_dir: cfg.freq_dir || 0,
-  };
-
-  fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.ok) {
-      if (d.restart_required) {
-        setSysMsg('已保存，设备正在重启...', '#3fb950');
-      } else {
-        setSysMsg('已保存', '#3fb950');
-      }
-    } else {
-      setSysMsg('保存失败', '#f85149');
-    }
-  })
-  .catch(function() {
-    setSysMsg('已保存，设备正在重启...', '#3fb950');
-  });
-}
-
-function doReboot() {
+window.doReboot = function() {
   if (!confirm('确定要重启设备吗？')) return;
-  fetch('/api/reboot', { method: 'POST' }).catch(function() {});
-  setSysMsg('正在重启...', '#8b949e');
-}
-
-function resetWifi() {
-  if (!confirm('确定重置WiFi配置？设备将重启进入配网模式。')) return;
-  fetch('/api/reset_wifi', { method: 'POST' }).catch(function() {});
-  setSysMsg('正在重启...', '#8b949e');
-}
-
-function factoryReset() {
-  if (!confirm('确定恢复出厂设置？所有配置将被清除。')) return;
-  fetch('/api/factory', { method: 'POST' }).catch(function() {});
-  setSysMsg('正在恢复出厂...', '#8b949e');
-}
-
-function setSysMsg(text, color) {
-  var el = document.getElementById('sys-msg');
-  if (el) {
-    el.textContent = text;
-    el.style.color = color;
+  if (App.socket && App.socket.readyState === WebSocket.OPEN) {
+    App.socket.send(JSON.stringify({ reboot: true }));
   }
-}
+};
 
-// LED编号预览
-function updateLedPreview() {
-  var canvas = document.getElementById('led-preview');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-
-  var w = parseInt(document.getElementById('led_w').value) || 8;
-  var h = parseInt(document.getElementById('led_h').value) || 8;
-  var serpentine = parseInt(document.getElementById('led_serpentine').value);
-  var start = parseInt(document.getElementById('led_start').value);
-
-  // 自适应cell尺寸，确保canvas不超过容器宽度
-  var maxCanvasWidth = 280;
-  var cellSize = Math.floor((maxCanvasWidth - 16) / Math.max(w, 1));
-  cellSize = Math.min(cellSize, 36);
-  cellSize = Math.max(cellSize, 24);
-
-  var cols = w;
-  var rows = h;
-  var padding = 8;
-
-  canvas.width = cols * cellSize + padding * 2;
-  canvas.height = rows * cellSize + padding * 2 + 14;
-
-  // 背景
-  ctx.fillStyle = '#0d1117';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 计算LED索引
-  function ledIndex(x, y) {
-    var px = (start & 1) ? (cols - 1 - x) : x;
-    var py = (start & 2) ? (rows - 1 - y) : y;
-    if (serpentine && (py & 1)) px = (cols - 1) - px;
-    return py * cols + px;
+window.factoryReset = function() {
+  if (!confirm('确定要恢复出厂设置吗？所有配置将被清除！')) return;
+  if (App.socket && App.socket.readyState === WebSocket.OPEN) {
+    App.socket.send(JSON.stringify({ factory: true }));
   }
+};
 
-  // 构建位置映射
-  var posMap = {};
-  for (var y = 0; y < rows; y++) {
-    for (var x = 0; x < cols; x++) {
-      var idx = ledIndex(x, y);
-      posMap[idx] = { x: x, y: y };
-    }
+window.testLedOrder = function() {
+  if (App.socket && App.socket.readyState === WebSocket.OPEN) {
+    App.socket.send(JSON.stringify({ test_led: true }));
+    showToast('LED 测试已启动');
   }
-
-  // 绘制数据流连线（红线）
-  ctx.strokeStyle = '#f85149';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([3, 3]);
-
-  for (var i = 0; i < cols * rows - 1; i++) {
-    var p1 = posMap[i], p2 = posMap[i + 1];
-    if (!p1 || !p2) continue;
-
-    var x1 = p1.x * cellSize + cellSize / 2 + padding;
-    var y1 = (rows - 1 - p1.y) * cellSize + cellSize / 2 + padding;
-    var x2 = p2.x * cellSize + cellSize / 2 + padding;
-    var y2 = (rows - 1 - p2.y) * cellSize + cellSize / 2 + padding;
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-
-  // 绘制LED圆圈和数字
-  var radius = Math.max(cellSize / 2 - 4, 10);
-  ctx.font = 'bold ' + Math.max(cellSize / 3.5, 9) + 'px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  for (var y = 0; y < rows; y++) {
-    for (var x = 0; x < cols; x++) {
-      var idx = ledIndex(x, y);
-      var px = x * cellSize + cellSize / 2 + padding;
-      var py = (rows - 1 - y) * cellSize + cellSize / 2 + padding;
-
-      ctx.fillStyle = '#21262d';
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#58a6ff';
-      ctx.fillText(idx, px, py);
-    }
-  }
-
-  // 起始角标注
-  ctx.fillStyle = '#3fb950';
-  ctx.font = '10px sans-serif';
-  var cornerText = ['左下', '右下', '左上', '右上'][start] || '左下';
-  ctx.fillText('LED 0 在 ' + cornerText, canvas.width / 2, canvas.height - 4);
-}
-
-function testLedOrder() {
-  if (!confirm('LED将从索引0开始依次点亮红色，用于观察实际走线顺序。\n\n确定开始测试？')) return;
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ test_led: true }));
-  }
-}
+};

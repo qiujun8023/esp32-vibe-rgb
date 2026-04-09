@@ -2,114 +2,195 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ESP32-Vibe-RGB 配网</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESP32 Vibe RGB 配网</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💡</text></svg>">
 </head>
 <body>
-<div style="max-width:420px;margin:0 auto;padding:16px">
-  <div class="header">ESP32-Vibe-RGB 配网</div>
+<div class="app">
+  <!-- 头部 -->
+  <header class="app-header">
+    <h1>ESP32 Vibe RGB</h1>
+  </header>
 
-  <div class="card">
-    <h3>选择 WiFi</h3>
-    <div id="ap-list" class="ap-list"><div class="scanning">点击下方按钮扫描...</div></div>
-    <div class="btn-row" style="margin-top:10px">
-      <button class="btn" onclick="scanWifi()">🔍 扫描 WiFi</button>
-    </div>
-  </div>
+  <main class="prov-content">
+    <!-- WiFi 扫描 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>选择 WiFi</h2>
+      </div>
+      <div class="panel-body">
+        <div class="ap-list" id="ap-list">
+          <div class="scanning">点击下方按钮扫描网络</div>
+        </div>
+        <div class="action-row" style="margin-top:var(--spacing-md)">
+          <button class="action-btn" onclick="scanWifi()">
+            <span>🔍 扫描 WiFi</span>
+          </button>
+        </div>
+      </div>
+    </section>
 
-  <div class="card">
-    <h3>WiFi 凭据</h3>
-    <div class="field">
-      <label>WiFi 名称 (SSID)</label>
-      <input type="text" id="ssid" placeholder="输入或点击上方列表选择" autocomplete="off">
-    </div>
-    <div class="field">
-      <label>WiFi 密码</label>
-      <input type="password" id="pass" placeholder="无密码留空" autocomplete="new-password">
-    </div>
-  </div>
+    <!-- WiFi 凭据 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>WiFi 凭据</h2>
+      </div>
+      <div class="panel-body">
+        <div class="fields-list">
+          <div class="field">
+            <label>WiFi 名称 (SSID)</label>
+            <input type="text" id="ssid" placeholder="输入或点击上方列表选择" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>WiFi 密码</label>
+            <input type="password" id="pass" placeholder="无密码留空" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <div class="card">
-    <h3>IP 配置</h3>
-    <div class="field">
-      <label>IP 分配方式</label>
-      <select id="ip_mode" onchange="toggleStaticIP()">
-        <option value="0">DHCP（自动获取）</option>
-        <option value="1">静态 IP</option>
-      </select>
-    </div>
-    <div id="static-ip-fields">
-      <div class="field"><label>IP 地址</label><input type="text" id="s_ip" placeholder="192.168.1.100"></div>
-      <div class="field"><label>子网掩码</label><input type="text" id="s_mask" placeholder="255.255.255.0"></div>
-      <div class="field"><label>网关</label><input type="text" id="s_gw" placeholder="192.168.1.1"></div>
-      <div class="field"><label>DNS 主</label><input type="text" id="s_dns1" placeholder="8.8.8.8"></div>
-      <div class="field"><label>DNS 备</label><input type="text" id="s_dns2" placeholder="8.8.4.4"></div>
-    </div>
-  </div>
+    <!-- IP 配置 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>IP 配置</h2>
+      </div>
+      <div class="panel-body">
+        <div class="field">
+          <label>IP 分配方式</label>
+          <select id="ip_mode" onchange="toggleStaticIP()">
+            <option value="0">DHCP（自动获取）</option>
+            <option value="1">静态 IP</option>
+          </select>
+        </div>
+        <div class="fields-list collapsible" id="static-ip-fields">
+          <div class="field">
+            <label>IP 地址</label>
+            <input type="text" id="s_ip" placeholder="192.168.1.100">
+          </div>
+          <div class="field">
+            <label>子网掩码</label>
+            <input type="text" id="s_mask" placeholder="255.255.255.0">
+          </div>
+          <div class="field">
+            <label>网关</label>
+            <input type="text" id="s_gw" placeholder="192.168.1.1">
+          </div>
+          <div class="field">
+            <label>DNS 主</label>
+            <input type="text" id="s_dns1" placeholder="8.8.8.8">
+          </div>
+          <div class="field">
+            <label>DNS 备</label>
+            <input type="text" id="s_dns2" placeholder="8.8.4.4">
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <div class="btn-row">
-    <button class="btn primary" style="flex:1" onclick="doProvision()">连接并保存</button>
-  </div>
-  <div id="msg" style="text-align:center;margin-top:12px;font-size:.88rem;min-height:20px"></div>
+    <!-- 提交按钮 -->
+    <div class="actions-stack">
+      <button class="action-btn primary large" onclick="doProvision()">连接并保存</button>
+    </div>
+
+    <!-- 消息提示 -->
+    <div class="toast" id="msg"></div>
+  </main>
 </div>
 
 <script>
-function toggleStaticIP(){
-  document.getElementById('static-ip-fields').className =
-    document.getElementById('ip_mode').value==='1'?'show':'';
+function toggleStaticIP() {
+  const show = document.getElementById('ip_mode').value === '1';
+  const fields = document.getElementById('static-ip-fields');
+  fields.classList.toggle('show', show);
 }
 
-function scanWifi(){
-  var el=document.getElementById('ap-list');
-  el.innerHTML='<div class="scanning">扫描中，请稍候...</div>';
-  fetch('/api/scan').then(r=>r.json()).then(aps=>{
-    if(!aps.length){el.innerHTML='<div class="scanning">未找到热点</div>';return;}
-    el.innerHTML='';
-    aps.sort((a,b)=>b.rssi-a.rssi);
-    aps.forEach(ap=>{
-      var d=document.createElement('div');
-      d.className='ap-item';
-      var icon=ap.auth===0?'🔓':'🔒';
-      var bars=ap.rssi>-50?'▂▄▆█':ap.rssi>-65?'▂▄▆_':ap.rssi>-75?'▂▄__':'▂___';
-      d.innerHTML='<span>'+icon+' '+escHtml(ap.ssid)+'</span>'
-        +'<span class="ap-rssi">'+bars+' '+ap.rssi+'dBm</span>';
-      d.onclick=function(){document.getElementById('ssid').value=ap.ssid;};
-      el.appendChild(d);
+function scanWifi() {
+  const list = document.getElementById('ap-list');
+  list.innerHTML = '<div class="scanning">扫描中，请稍候...</div>';
+  
+  fetch('/api/scan')
+    .then(r => r.json())
+    .then(aps => {
+      if (!aps.length) {
+        list.innerHTML = '<div class="scanning">未找到 WiFi 热点</div>';
+        return;
+      }
+      
+      // 按信号强度排序
+      aps.sort((a, b) => b.rssi - a.rssi);
+      
+      list.innerHTML = aps.map(ap => {
+        const icon = ap.auth === 0 ? '🔓' : '🔒';
+        const bars = ap.rssi > -50 ? '▂▄▆█' :
+                     ap.rssi > -65 ? '▂▄▆_' :
+                     ap.rssi > -75 ? '▂▄__' : '▂___';
+        return `
+          <div class="ap-item" onclick="selectAp('${escHtml(ap.ssid)}')">
+            <span>${icon} ${escHtml(ap.ssid)}</span>
+            <span class="ap-rssi">${bars} ${ap.rssi}dBm</span>
+          </div>
+        `;
+      }).join('');
+    })
+    .catch(() => {
+      list.innerHTML = '<div class="scanning">扫描失败，请重试</div>';
     });
-  }).catch(()=>{el.innerHTML='<div class="scanning">扫描失败</div>';});
 }
 
-function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-
-function setMsg(txt,ok){
-  var el=document.getElementById('msg');
-  el.textContent=txt;
-  el.style.color=ok?'#3fb950':'#f85149';
+function selectAp(ssid) {
+  document.getElementById('ssid').value = ssid;
 }
 
-function doProvision(){
-  var ssid=document.getElementById('ssid').value.trim();
-  if(!ssid){setMsg('请输入 WiFi 名称',false);return;}
-  setMsg('正在保存配置，请稍候...',true);
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&#34;');
+}
 
-  var body='ssid='+encodeURIComponent(ssid)
-    +'&pass='+encodeURIComponent(document.getElementById('pass').value)
-    +'&ip_mode='+document.getElementById('ip_mode').value;
-  if(document.getElementById('ip_mode').value==='1'){
-    body+='&ip='+encodeURIComponent(document.getElementById('s_ip').value)
-      +'&mask='+encodeURIComponent(document.getElementById('s_mask').value)
-      +'&gw='+encodeURIComponent(document.getElementById('s_gw').value)
-      +'&dns1='+encodeURIComponent(document.getElementById('s_dns1').value)
-      +'&dns2='+encodeURIComponent(document.getElementById('s_dns2').value);
+function showToast(text, success) {
+  const toast = document.getElementById('msg');
+  toast.textContent = text;
+  toast.style.color = success ? 'var(--color-success)' : 'var(--color-danger)';
+  toast.classList.add('show');
+}
+
+function doProvision() {
+  const ssid = document.getElementById('ssid').value.trim();
+  if (!ssid) {
+    showToast('请输入 WiFi 名称', false);
+    return;
   }
-
-  fetch('/api/prov',{method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
-  .then(r=>r.json()).then(d=>{
-    if(d.ok) setMsg('✓ 配置已保存！设备正在重启连接 WiFi...', true);
-    else     setMsg('✗ '+(d.err||'失败'), false);
-  }).catch(()=>setMsg('✓ 配置已保存！设备正在重启...', true));
+  
+  showToast('正在保存配置...', true);
+  
+  let body = 'ssid=' + encodeURIComponent(ssid) +
+             '&pass=' + encodeURIComponent(document.getElementById('pass').value) +
+             '&ip_mode=' + document.getElementById('ip_mode').value;
+  
+  if (document.getElementById('ip_mode').value === '1') {
+    body += '&ip=' + encodeURIComponent(document.getElementById('s_ip').value) +
+            '&mask=' + encodeURIComponent(document.getElementById('s_mask').value) +
+            '&gw=' + encodeURIComponent(document.getElementById('s_gw').value) +
+            '&dns1=' + encodeURIComponent(document.getElementById('s_dns1').value) +
+            '&dns2=' + encodeURIComponent(document.getElementById('s_dns2').value);
+  }
+  
+  fetch('/api/prov', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        showToast('✓ 配置已保存！设备正在重启...', true);
+      } else {
+        showToast('✗ ' + (data.err || '保存失败'), false);
+      }
+    })
+    .catch(() => {
+      showToast('✓ 配置已保存！设备正在重启...', true);
+    });
 }
 </script>
 </body>

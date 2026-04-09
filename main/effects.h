@@ -1,44 +1,58 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
+
+#define EFFECT_COUNT 28
+
+// 经典频谱类
+#define FX_SPECTRUM       0
+#define FX_2DGEQ          1
+#define FX_2DCENTERBARS   2
+#define FX_BINMAP         3
+#define FX_WATERFALL      4
+
+// 重力流动类
+#define FX_GRAVIMETER     5
+#define FX_GRAVCENTER     6
+#define FX_GRAVCENTRIC    7
+#define FX_GRAVFREQ       8
+#define FX_2DFUNKYPLANK   9
+#define FX_MATRIPIX       10
+
+// 粒子波动类
+#define FX_FREQWAVE       11
+#define FX_PIXELWAVE      12
+#define FX_RIPPLEPEAK     13
+#define FX_JUGGLES        14
+#define FX_PUDDLEPEAK     15
+#define FX_PUDDLES        16
+#define FX_FREQPIXELS     17
+#define FX_FREQMAP        18
+#define FX_PIXELS         19
+
+// 噪声抽象类
+#define FX_NOISEFIRE      20
+#define FX_PLASMOID       21
+#define FX_AURORA         22
+#define FX_MIDNOISE       23
+#define FX_NOISEMETER     24
+#define FX_NOISEMOVE      25
+#define FX_BLURZ          26
+#define FX_DJLIGHT        27
+
+typedef struct {
+    const char* name;
+    const char* label_c1;
+    const char* label_c2;
+    const char* label_c3;
+} effect_info_t;
+
+void effects_init(void);
+void effects_set_mode(uint8_t id);
 
 #include "mic.h"
 #include "settings.h"
-
-#define EFFECT_COUNT 22
-
-/**
- * 灯效元信息结构体
- */
-typedef struct {
-    const char* name;
-    const char *c1, *c2, *c3;
-} effect_info_t;
-
-extern const effect_info_t EFFECT_INFO[EFFECT_COUNT];
-
-/**
- * 初始化灯效引擎
- */
-void effects_init(void);
-
-/**
- * 切换当前灯效模式
- */
-void effects_set_mode(uint8_t id);
-
-/**
- * 更新并渲染一帧灯效
- */
 void effects_update(const mic_data_t* data, const settings_t* s);
 
-/**
- * 暂停灯效更新
- */
 void effects_pause(void);
-
-/**
- * 恢复灯效更新
- */
 void effects_resume(void);
