@@ -1,7 +1,7 @@
-// net/wifi_prov.c
-// WiFi AP 配网模式：Captive Portal + DNS 劫持
-// 修改：移除重复的 esp_netif_init / esp_event_loop_create_default（由 net_init() 统一调用）
-
+/**
+ * @file wifi_prov.c
+ * @brief WiFi AP配网模式：Captive Portal + DNS劫持
+ */
 #include "wifi_prov.h"
 
 #include <cJSON.h>
@@ -33,7 +33,9 @@ extern const char     html_style_css_start[] asm("_binary_style_css_start");
 extern const unsigned prov_html_length       asm("prov_html_length");
 extern const unsigned style_css_length       asm("style_css_length");
 
-// ── URL 解码 ──────────────────────────────────────────────────────────────────
+/**
+ * @brief URL解码
+ */
 static void url_decode(char* dst, const char* src, size_t maxlen) {
     size_t j = 0;
     for (size_t i = 0; src[i] && j < maxlen - 1; i++) {
@@ -65,7 +67,9 @@ static void extract_field(const char* body, const char* key, char* out, size_t o
     url_decode(out, raw, outlen);
 }
 
-// ── HTTP 处理器 ───────────────────────────────────────────────────────────────
+/**
+ * @brief 扫描WiFi热点
+ */
 static esp_err_t handle_scan(httpd_req_t* req) {
     esp_wifi_scan_start(NULL, true);
     uint16_t ap_num = 0;
@@ -97,6 +101,9 @@ static esp_err_t handle_scan(httpd_req_t* req) {
     return ESP_OK;
 }
 
+/**
+ * @brief 处理配网请求
+ */
 static esp_err_t handle_prov(httpd_req_t* req) {
     char body[512] = {0};
     int  len       = httpd_req_recv(req, body, sizeof(body) - 1);
@@ -144,18 +151,27 @@ static esp_err_t handle_prov(httpd_req_t* req) {
     return ESP_OK;
 }
 
+/**
+ * @brief 返回CSS样式
+ */
 static esp_err_t handle_css(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/css");
     httpd_resp_send(req, html_style_css_start, style_css_length);
     return ESP_OK;
 }
 
+/**
+ * @brief 返回配网页面
+ */
 static esp_err_t handle_root(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, html_prov_html_start, prov_html_length);
     return ESP_OK;
 }
 
+/**
+ * @brief 通用重定向处理
+ */
 static esp_err_t handle_catch(httpd_req_t* req) {
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "/");
@@ -163,7 +179,9 @@ static esp_err_t handle_catch(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// ── DNS 劫持任务（Captive Portal）────────────────────────────────────────────
+/**
+ * @brief DNS劫持任务（Captive Portal）
+ */
 static void dns_task(void* arg) {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
@@ -210,7 +228,9 @@ static void dns_task(void* arg) {
     }
 }
 
-// ── AP 模式主入口 ─────────────────────────────────────────────────────────────
+/**
+ * @brief 启动配网AP模式
+ */
 void wifi_prov_start_ap(void) {
     s_evt = xEventGroupCreate();
 
@@ -266,7 +286,9 @@ void wifi_prov_start_ap(void) {
         httpd_register_uri_handler(srv, &u_catch);
     }
 
-    xTaskCreate(dns_task, "dns", 3072, NULL, 4, NULL);
+    if (xTaskCreate(dns_task, "dns", 3072, NULL, 4, NULL) != pdPASS) {
+        ESP_LOGW(TAG, "dns task creation failed, captive portal redirect will not work");
+    }
 
     ESP_LOGI(TAG, "waiting for provisioning completion");
     xEventGroupWaitBits(s_evt, PROV_DONE_BIT, false, true, portMAX_DELAY);

@@ -112,11 +112,9 @@
         <div class="panel-body">
           <div class="btn-row-2">
             <button class="choice-btn active" id="dir0" data-value="0">
-              <span class="choice-icon">↑</span>
               <span class="choice-text">水平排列</span>
             </button>
             <button class="choice-btn" id="dir1" data-value="1">
-              <span class="choice-icon">→</span>
               <span class="choice-text">垂直排列</span>
             </button>
           </div>
@@ -176,18 +174,18 @@
           <span class="panel-badge">需重启</span>
         </div>
         <div class="panel-body">
-          <div class="fields-grid">
-            <div class="field-item">
-              <label class="field-label">WS (LRCK)</label>
-              <input type="number" class="field-input" id="mic_ws" min="0" max="48" value="4">
+          <div class="fields-list">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 80px;">WS (LRCK)</label>
+              <input type="number" class="field-input" id="mic_ws" min="0" max="48" value="4" style="flex:1">
             </div>
-            <div class="field-item">
-              <label class="field-label">SCK (BCLK)</label>
-              <input type="number" class="field-input" id="mic_sck" min="0" max="48" value="5">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 80px;">SCK (BCLK)</label>
+              <input type="number" class="field-input" id="mic_sck" min="0" max="48" value="5" style="flex:1">
             </div>
-            <div class="field-item">
-              <label class="field-label">DIN (DATA)</label>
-              <input type="number" class="field-input" id="mic_din" min="0" max="48" value="6">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 80px;">DIN (DATA)</label>
+              <input type="number" class="field-input" id="mic_din" min="0" max="48" value="6" style="flex:1">
             </div>
           </div>
         </div>
@@ -217,38 +215,38 @@
           <span class="panel-badge">需重启</span>
         </div>
         <div class="panel-body">
-          <div class="fields-grid">
-            <div class="field-item">
-              <label class="field-label">GPIO</label>
-              <input type="number" class="field-input" id="led_gpio" min="0" max="48" value="16">
+          <div class="fields-list">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">GPIO</label>
+              <input type="number" class="field-input" id="led_gpio" min="0" max="48" value="16" style="flex:1">
             </div>
-            <div class="field-item">
-              <label class="field-label">宽度</label>
-              <input type="number" class="field-input" id="led_w" min="1" max="32" value="8">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">宽度</label>
+              <input type="number" class="field-input" id="led_w" min="1" max="32" value="8" style="flex:1">
             </div>
-            <div class="field-item">
-              <label class="field-label">高度</label>
-              <input type="number" class="field-input" id="led_h" min="1" max="32" value="8">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">高度</label>
+              <input type="number" class="field-input" id="led_h" min="1" max="32" value="8" style="flex:1">
             </div>
-            <div class="field-item">
-              <label class="field-label">走线</label>
-              <select class="field-select" id="led_serpentine">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">走线</label>
+              <select class="field-select" id="led_serpentine" style="flex:1">
                 <option value="1">蛇形</option>
                 <option value="0">顺序</option>
               </select>
             </div>
-            <div class="field-item">
-              <label class="field-label">起点</label>
-              <select class="field-select" id="led_start">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">起点</label>
+              <select class="field-select" id="led_start" style="flex:1">
                 <option value="0">左下</option>
                 <option value="1">右下</option>
                 <option value="2">左上</option>
                 <option value="3">右上</option>
               </select>
             </div>
-            <div class="field-item">
-              <label class="field-label">旋转</label>
-              <select class="field-select" id="led_rotation">
+            <div class="field-row">
+              <label class="field-label" style="min-width: 50px;">旋转</label>
+              <select class="field-select" id="led_rotation" style="flex:1">
                 <option value="0">0°</option>
                 <option value="1">90°</option>
                 <option value="2">180°</option>
@@ -267,9 +265,9 @@
         <div class="panel-body">
           <div class="led-preview-wrap">
             <canvas id="led-preview"></canvas>
-          </div>
-          <div class="action-row">
-            <button class="action-btn primary" onclick="testLedOrder()">测试布线</button>
+            <div class="preview-actions" style="width: 100%; display: flex; margin-top: 10px;">
+              <button class="action-btn outline" onclick="testLedOrder()" id="btn-test" style="flex: 1;">测试接线顺序</button>
+            </div>
           </div>
         </div>
       </div>
@@ -358,7 +356,7 @@
         <div class="panel-body">
           <div class="actions-stack">
             <button class="action-btn primary large" onclick="saveAllSettings()">保存配置</button>
-            <button class="action-btn large" onclick="doReboot()">重启设备</button>
+            <button class="action-btn warning large" onclick="doReboot()">重启设备</button>
             <button class="action-btn danger large" onclick="factoryReset()">恢复出厂设置</button>
           </div>
         </div>

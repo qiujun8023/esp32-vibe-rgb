@@ -7,7 +7,7 @@
 #define DEF_LED_GPIO       16
 #define DEF_LED_W          8
 #define DEF_LED_H          8
-#define DEF_LED_SERPENTINE 1
+#define DEF_LED_SERPENTINE 0
 #define DEF_LED_START      0
 #define DEF_LED_ROTATION   0
 #define DEF_BRIGHTNESS     160

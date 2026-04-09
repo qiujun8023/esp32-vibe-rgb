@@ -1,10 +1,13 @@
 /**
- * 噪声类效果：PLASMOID, MIDNOISE, NOISEMETER, NOISEFIRE, NOISEMOVE
+ * @file fx_noise.c
+ * @brief 噪声类效果：等离子、极光、火焰等
  */
 #include "effects_internal.h"
 
 /**
- * FX_PLASMOID (6) - 等离子体
+ * @brief 等离子体效果 (FX_PLASMOID, #21)
+ *
+ * 多层噪声叠加产生等离子流动效果。
  */
 void fx_plasmoid(const mic_data_t* d, const settings_t* s) {
     int   w     = W, h = H;
@@ -26,7 +29,9 @@ void fx_plasmoid(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_MIDNOISE (8) - 中间噪声
+ * @brief 中间噪声效果 (FX_MIDNOISE, #23)
+ *
+ * 频带驱动的噪声圆点，随机位置和大小。
  */
 void fx_midnoise(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 100);
@@ -52,28 +57,32 @@ void fx_midnoise(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_NOISEMETER (9) - 噪声计
- * 修复：去掉 h-1-y 反转，让柱子从底部向上长
+ * @brief 噪声计效果 (FX_NOISEMETER, #24)
+ *
+ * 噪声驱动的频谱柱，从底部向上显示。
  */
 void fx_noisemeter(const mic_data_t* d, const settings_t* s) {
-    fade_out(200);
     int w = W, h = H;
 
     for (int x = 0; x < w; x++) {
-        float n = noise2d(x * 0.2f + s_st.phase, 0);
+        float n     = noise2d(x * 0.2f + s_st.phase, 0);
         int   bar_h = (int)(n * h * d->volume * 2);
         if (bar_h > h) bar_h = h;
 
         rgb_t c = palette_color(s->palette, x * 255 / w);
-        for(int y=0; y<bar_h; y++) led_set_pixel(x, y, c.r, c.g, c.b);
+        // 逐像素写入：亮区着色、暗区清零
+        for (int y = 0; y < h; y++) {
+            if (y < bar_h) led_set_pixel(x, y, c.r, c.g, c.b);
+            else           led_set_pixel(x, y, 0, 0, 0);
+        }
     }
     s_st.phase += s->speed / 255.0f;
 }
 
 /**
- * FX_NOISEFIRE (16) - 噪声火焰
- * 坐标系：y=0 是底部，y=h-1 是顶部
- * 逻辑：火焰从底部向上燃烧，底部最亮向上渐暗
+ * @brief 噪声火焰效果 (FX_NOISEFIRE, #20)
+ *
+ * 火焰从底部向上燃烧，底部最亮向上渐暗。
  */
 void fx_noisefire(const mic_data_t* d, const settings_t* s) {
     int   w     = W, h = H;
@@ -82,15 +91,12 @@ void fx_noisefire(const mic_data_t* d, const settings_t* s) {
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            // 火焰噪声逻辑：底部(y=0)最亮，向上渐暗
-            // -s_st.phase 让噪声向上移动 = 火焰向上燃烧
             float noise = noise2d(x * 0.5f, y * 0.5f - s_st.phase);
-            float mask  = (float)(h - y) / h;  // 底部 mask=1，顶部 mask≈0
+            float mask  = (float)(h - y) / h;
             float v     = noise * mask * (d->volume * 3.0f + 0.5f);
 
             if (v > 1.0f) v = 1.0f;
             uint8_t bri   = (uint8_t)(v * 255);
-            // 映射到调色板的前 1/4 (通常是红/橙色)
             rgb_t   c     = palette_color(s->palette, (uint8_t)(v * 64));
             led_set_pixel(x, y, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
         }
@@ -98,7 +104,9 @@ void fx_noisefire(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_AURORA (22) - 极光
+ * @brief 极光效果 (FX_AURORA, #22)
+ *
+ * 多重噪声叠加产生丝状极光流动效果。
  */
 void fx_aurora(const mic_data_t* d, const settings_t* s) {
     int   w     = W, h = H;
@@ -109,12 +117,10 @@ void fx_aurora(const mic_data_t* d, const settings_t* s) {
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            // 极光逻辑：多重噪声叠加，产生丝状流动感
             float n1 = noise2d(x * 0.2f * scale + s_st.phase, y * 0.1f);
             float n2 = noise2d(y * 0.2f * scale - s_st.phase * 0.5f, x * 0.1f);
             float v  = (n1 + n2) / 2.0f;
 
-            // 只保留高能量部分，产生丝状感
             v = powf(v, 2.0f) * 2.0f;
             if (v > 1.0f) v = 1.0f;
 
@@ -128,7 +134,9 @@ void fx_aurora(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_NOISEMOVE (25) - 噪声移动
+ * @brief 噪声移动效果 (FX_NOISEMOVE, #25)
+ *
+ * 频带驱动的噪声点沿水平方向移动。
  */
 void fx_noisemove(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 128);

@@ -1,3 +1,7 @@
+/**
+ * @file effects_core.c
+ * @brief 特效系统核心：初始化、状态管理、调度
+ */
 #include "effects_internal.h"
 
 #include <esp_log.h>
@@ -10,6 +14,9 @@ static volatile bool s_paused = false;
 fx_state_t s_st;
 uint8_t    s_mode = 0;
 
+/**
+ * @brief 效果信息表（名称及自定义参数标签）
+ */
 const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
     {"频谱柱",   "色彩模式", "显示峰值", "开启镜像"},
     {"频谱均衡", "消退速率", "显示峰值", ""},
@@ -41,16 +48,22 @@ const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
     {"DJ灯光",   "扫描速度", "闪烁时长", ""},
 };
 
+/**
+ * @brief 绘制频谱柱
+ *
+ * @param band 频带索引
+ * @param height 柱高度
+ * @param c 颜色
+ * @param s 设置快照
+ */
 void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
     int w = W, h = H;
     if (s->freq_dir == 0) {
-        // 柱子从底部向上长 (y=0 是底部)
         for (int i = 0; i < h; i++) {
             if (i < height) led_set_pixel(band, i, c.r, c.g, c.b);
             else led_set_pixel(band, i, 0, 0, 0);
         }
     } else {
-        // 垂直排列：柱子向右长
         for (int i = 0; i < w; i++) {
             if (i < height) led_set_pixel(i, band, c.r, c.g, c.b);
             else led_set_pixel(i, band, 0, 0, 0);
@@ -58,6 +71,9 @@ void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
     }
 }
 
+/**
+ * @brief 初始化噪声置换表（Perlin噪声）
+ */
 void noise_setup(void) {
     if (s_st.noise_init) return;
     for (int i = 0; i < 256; i++) s_st.perm[i] = i;
@@ -71,6 +87,9 @@ void noise_setup(void) {
     s_st.noise_init = true;
 }
 
+/**
+ * @brief 2D Perlin噪声计算
+ */
 float noise2d(float x, float y) {
     if (!s_st.noise_init) noise_setup();
     int   ix = (int)floorf(x) & 255;
@@ -88,6 +107,9 @@ float noise2d(float x, float y) {
     return (x0 + fy * (x1 - x0)) / 255.0f;
 }
 
+/**
+ * @brief 16位噪声值（用于调色板索引）
+ */
 uint16_t noise16(uint32_t x, uint32_t y) {
     if (!s_st.noise_init) noise_setup();
     int ix = (x >> 8) & 255;
@@ -95,10 +117,16 @@ uint16_t noise16(uint32_t x, uint32_t y) {
     return s_st.perm[(s_st.perm[ix] + iy) & 255] << 8;
 }
 
+/**
+ * @brief 帧缓冲淡出
+ */
 void fade_out(uint8_t rate) {
     led_fade_all(rate);
 }
 
+/**
+ * @brief 频率值映射为调色板位置（对数分布）
+ */
 uint8_t freq_to_color(float freq) {
     if (freq < 60.0f) return 0;
     if (freq > 8000.0f) return 255;
@@ -108,6 +136,9 @@ uint8_t freq_to_color(float freq) {
     return (uint8_t)((log_freq - log_min) * 255.0f / (log_max - log_min));
 }
 
+/**
+ * @brief 频率值映射为矩阵位置（对数分布）
+ */
 int freq_to_pos(float freq, int max_pos) {
     if (freq < 60.0f) return 0;
     if (freq > 8000.0f) return max_pos - 1;
@@ -128,6 +159,9 @@ static const fx_fn_t FX_TABLE[EFFECT_COUNT] = {
     fx_noisemove, fx_blurz, fx_djlight,
 };
 
+/**
+ * @brief 特效系统初始化
+ */
 void effects_init(void) {
     memset(&s_st, 0, sizeof(s_st));
     for (int i = 0; i < MAX_RIPPLES; i++) {
@@ -138,6 +172,11 @@ void effects_init(void) {
     ESP_LOGI(TAG, "effects init ok, count: %d", EFFECT_COUNT);
 }
 
+/**
+ * @brief 设置当前效果模式
+ *
+ * 切换效果时保留噪声置换表，重置其他状态。
+ */
 void effects_set_mode(uint8_t id) {
     if (id < EFFECT_COUNT) {
         s_mode = id;
@@ -158,16 +197,29 @@ void effects_set_mode(uint8_t id) {
     }
 }
 
+/**
+ * @brief 效果帧更新（主循环调用）
+ */
 void effects_update(const mic_data_t* data, const settings_t* s) {
     if (s_paused || s_mode >= EFFECT_COUNT) return;
     if (!s_st.noise_init) noise_setup();
     FX_TABLE[s_mode](data, s);
 }
 
+/**
+ * @brief 暂停效果渲染
+ */
 void effects_pause(void) {
     s_paused = true;
 }
 
+/**
+ * @brief 恢复效果渲染
+ */
 void effects_resume(void) {
     s_paused = false;
+}
+
+bool effects_is_paused(void) {
+    return s_paused;
 }

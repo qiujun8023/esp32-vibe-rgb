@@ -1,9 +1,7 @@
-// net/http_server.c
-// HTTP/WebSocket 服务器：静态文件服务、WS 消息分发、业务命令处理
-// 修复：
-//   1. handle_ws 避免对同一 buffer 二次 JSON 解析
-//   2. settings_to_json 在锁外执行（先 settings_copy 快照）
-
+/**
+ * @file http_server.c
+ * @brief HTTP/WebSocket服务器：静态文件、WS消息、业务命令
+ */
 #include "http_server.h"
 
 #include <cJSON.h>
@@ -30,26 +28,36 @@ extern const unsigned ctrl_html_length       asm("ctrl_html_length");
 extern const unsigned ctrl_js_length         asm("ctrl_js_length");
 extern const unsigned style_css_length       asm("style_css_length");
 
-// ── 静态文件处理 ───────────────────────────────────────────────────────────────
+/**
+ * @brief 返回控制页面
+ */
 static esp_err_t handle_root(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, html_ctrl_html_start, ctrl_html_length);
     return ESP_OK;
 }
 
+/**
+ * @brief 返回CSS样式
+ */
 static esp_err_t handle_css(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/css");
     httpd_resp_send(req, html_style_css_start, style_css_length);
     return ESP_OK;
 }
 
+/**
+ * @brief 返回JS脚本
+ */
 static esp_err_t handle_js(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/javascript; charset=utf-8");
     httpd_resp_send(req, html_ctrl_js_start, ctrl_js_length);
     return ESP_OK;
 }
 
-// ── WebSocket 处理 ─────────────────────────────────────────────────────────────
+/**
+ * @brief WebSocket处理
+ */
 static esp_err_t handle_ws(httpd_req_t* req) {
     if (req->method == HTTP_GET) {
         ESP_LOGI(TAG, "websocket connected, fd: %d", httpd_req_to_sockfd(req));
@@ -74,17 +82,14 @@ static esp_err_t handle_ws(httpd_req_t* req) {
 
     buf[pkt.len] = '\0';
 
-    // 应用层 ping/pong
     if (pkt.len == 4 && strcmp((char*)buf, "ping") == 0) {
         httpd_ws_frame_t pong = {.type = HTTPD_WS_TYPE_TEXT, .payload = (uint8_t*)"pong", .len = 4};
         return httpd_ws_send_frame(req, &pong);
     }
 
-    // 解析 JSON（只解析一次）
     cJSON* root = cJSON_Parse((char*)buf);
     if (!root) return ESP_OK;
 
-    // ── get_cfg：锁外快照，锁外序列化 ─────────────────────────────────────────
     if (cJSON_GetObjectItem(root, "get_cfg")) {
         settings_t snap;
         settings_copy(&snap);
@@ -102,31 +107,25 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
-    // ── test_led ───────────────────────────────────────────────────────────────
     if (cJSON_GetObjectItem(root, "test_led")) {
         effects_pause();
         int count = led_count();
         for (int i = 0; i < count; i++) {
-            led_clear();
-            led_set_pixel_idx(i, 255, 0, 0);
-            led_flush();
+            led_hw_test_pixel(i, 255, 0, 0);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-        led_clear();
-        led_flush();
+        led_hw_test_pixel(-1, 0, 0, 0);
         effects_resume();
         cJSON_Delete(root);
         return ESP_OK;
     }
 
-    // ── save ───────────────────────────────────────────────────────────────────
     if (cJSON_GetObjectItem(root, "save")) {
         settings_save();
         cJSON_Delete(root);
         return ESP_OK;
     }
 
-    // ── reboot ─────────────────────────────────────────────────────────────────
     if (cJSON_GetObjectItem(root, "reboot")) {
         cJSON_Delete(root);
         ESP_LOGW(TAG, "reboot requested via ws");
@@ -135,7 +134,6 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
-    // ── factory reset ──────────────────────────────────────────────────────────
     if (cJSON_GetObjectItem(root, "factory")) {
         cJSON_Delete(root);
         ESP_LOGW(TAG, "factory reset requested via ws");
@@ -143,7 +141,6 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
-    // ── 通用配置更新（直接使用已解析的 root，不二次解析）─────────────────────
     bool restart = false;
     settings_lock();
     settings_t* s = settings_get();
@@ -167,7 +164,9 @@ static esp_err_t handle_ws(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// ── REST API ───────────────────────────────────────────────────────────────────
+/**
+ * @brief REST API：保存配置
+ */
 static esp_err_t handle_save(httpd_req_t* req) {
     char buf[1024] = {0};
     int  len       = httpd_req_recv(req, buf, sizeof(buf) - 1);
@@ -214,6 +213,9 @@ static esp_err_t handle_save(httpd_req_t* req) {
     return ESP_OK;
 }
 
+/**
+ * @brief REST API：重启设备
+ */
 static esp_err_t handle_reboot(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -222,6 +224,9 @@ static esp_err_t handle_reboot(httpd_req_t* req) {
     return ESP_OK;
 }
 
+/**
+ * @brief REST API：恢复出厂设置
+ */
 static esp_err_t handle_factory_reset(httpd_req_t* req) {
     ESP_LOGW(TAG, "factory reset requested");
     httpd_resp_set_type(req, "application/json");
@@ -231,7 +236,9 @@ static esp_err_t handle_factory_reset(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// ── 服务器启动 ────────────────────────────────────────────────────────────────
+/**
+ * @brief 注册URI处理器
+ */
 static void register_uri(httpd_handle_t srv, const char* uri, httpd_method_t method,
                          esp_err_t (*handler)(httpd_req_t*), bool ws) {
     httpd_uri_t u = {
@@ -246,6 +253,9 @@ static void register_uri(httpd_handle_t srv, const char* uri, httpd_method_t met
     httpd_register_uri_handler(srv, &u);
 }
 
+/**
+ * @brief 启动HTTP服务器
+ */
 void http_server_start(void) {
     httpd_config_t hcfg   = HTTPD_DEFAULT_CONFIG();
     hcfg.max_uri_handlers = 16;

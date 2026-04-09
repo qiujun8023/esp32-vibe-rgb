@@ -2,46 +2,49 @@
 #include <esp_random.h>
 
 /**
- * FX_SPECTRUM (0) - 经典频谱柱
- * 优化：改用 fade_out 让柱子变化更平滑
- * 逻辑：y=0 为底, x=0 为左
+ * @brief 经典频谱柱效果 (FX_SPECTRUM, #0)
+ *
+ * 从底部向上的频谱柱，支持镜像显示和峰值点。
  */
 void fx_spectrum(const mic_data_t* d, const settings_t* s) {
-    fade_out(128);  // 添加残影，让柱子变化更平滑
     int  w      = W;
     int  h      = H;
     bool mirror = s->custom3 > 128;
     int  bands  = mirror ? w / 2 : w;
 
+    if (bands <= 0) return;
+
     for (int b = 0; b < bands; b++) {
         int mic_b = b * MIC_BANDS / bands;
+        if (mic_b >= MIC_BANDS) mic_b = MIC_BANDS - 1;
         int bar   = (int)(d->bands[mic_b] * h + 0.5f);
         if (bar > h) bar = h;
 
-        // 只绘制柱子部分（不绘制黑色区域，让 fade_out 处理）
-        for (int y = 0; y < bar; y++) {
-            // c1: 0=频带着色, 1=高度着色
-            uint8_t pos = (s->custom1 == 0) ? (b * 255 / (bands - 1)) : ((h > 1) ? (uint8_t)(y * 255 / (h - 1)) : 255);
-            rgb_t c = palette_color(s->palette, pos);
-
-            if (s->freq_dir == 0) {
-                led_set_pixel(b, y, c.r, c.g, c.b);
-            } else {
-                led_set_pixel(y, b, c.r, c.g, c.b);
-            }
-        }
-
-        // 峰值点绘制
+        // 峰值计算
+        int py = -1;
         if (s->custom2 > 64) {
             if (bar > s_st.peak_hold[b]) s_st.peak_hold[b] = (float)bar;
             s_st.peak_hold[b] -= 0.05f + (s->speed / 255.0f * 0.2f);
             if (s_st.peak_hold[b] < 0) s_st.peak_hold[b] = 0;
+            py = (int)s_st.peak_hold[b];
+        }
 
-            int py = (int)s_st.peak_hold[b];
-            if (py > 0 && py < h) {
-                if (s->freq_dir == 0) led_set_pixel(b, py, 255, 255, 255);
-                else led_set_pixel(py, b, 255, 255, 255);
+        // 逐像素写入：亮区着色、峰值白点、暗区清零（不依赖 fade_out）
+        for (int y = 0; y < h; y++) {
+            uint8_t r, g, bv;
+            if (y < bar) {
+                uint8_t pos = (s->custom1 == 0)
+                    ? ((bands > 1) ? (uint8_t)(b * 255 / (bands - 1)) : 0)
+                    : ((h > 1) ? (uint8_t)(y * 255 / (h - 1)) : 255);
+                rgb_t c = palette_color(s->palette, pos);
+                r = c.r; g = c.g; bv = c.b;
+            } else if (y == py && py > 0 && py < h) {
+                r = g = bv = 255;
+            } else {
+                r = g = bv = 0;
             }
+            if (s->freq_dir == 0) led_set_pixel(b, y, r, g, bv);
+            else                  led_set_pixel(y, b, r, g, bv);
         }
     }
 
@@ -57,48 +60,48 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_2DGEQ (1) - 频谱均衡器
- * 修复：改用 fade_out 替代 led_clear，消除频闪
+ * @brief 频谱均衡器效果 (FX_2DGEQ, #1)
+ *
+ * 水平频谱柱显示，带峰值点追踪。
  */
 void fx_2dgeq(const mic_data_t* d, const settings_t* s) {
-    fade_out(64);  // 改用 fade_out 替代 led_clear，消除频闪
     int w = W, h = H;
     for (int x = 0; x < w; x++) {
-        int   band = x * MIC_BANDS / w;
-        float val  = d->bands[band];
+        int   band  = x * MIC_BANDS / w;
+        float val   = d->bands[band];
         int   bar_h = (int)(val * h);
         if (bar_h < 1 && val > 0.05f) bar_h = 1;
         rgb_t c = palette_color(s->palette, x * 255 / w);
 
-        if (s->freq_dir == 0) {
-            // 水平排列: 向上长
-            for (int y = 0; y < bar_h; y++) led_set_pixel(x, y, c.r, c.g, c.b);
-        } else {
-            // 垂直排列: 向右长
-            for (int y = 0; y < bar_h; y++) led_set_pixel(y, x, c.r, c.g, c.b);
-        }
-
-        // 峰值点
+        // 峰值追踪
         if (bar_h > (int)s_st.geq_peak[x]) s_st.geq_peak[x] = (float)bar_h;
         else if (s_st.frame % 4 == 0 && s_st.geq_peak[x] > 0) s_st.geq_peak[x]--;
-
         int py = (int)s_st.geq_peak[x];
-        if (py >= 0 && py < h) {
-            if (s->freq_dir == 0) led_set_pixel(x, py, 255, 255, 255);
-            else led_set_pixel(py, x, 255, 255, 255);
+
+        // 逐像素写入：亮区着色、峰值白点、暗区清零
+        for (int y = 0; y < h; y++) {
+            uint8_t r, g, bv;
+            if (y < bar_h) {
+                r = c.r; g = c.g; bv = c.b;
+            } else if (y == py && py >= 0 && py < h) {
+                r = g = bv = 255;
+            } else {
+                r = g = bv = 0;
+            }
+            if (s->freq_dir == 0) led_set_pixel(x, y, r, g, bv);
+            else                  led_set_pixel(y, x, r, g, bv);
         }
     }
     s_st.frame++;
 }
 
 /**
- * FX_WATERFALL (4) - 瀑布流
- * 坐标系：y=0 是底部，y=h-1 是顶部
- * 逻辑：从顶部向下流动，新数据从顶部注入
+ * @brief 瀑布流效果 (FX_WATERFALL, #4)
+ *
+ * 频谱数据从顶部向下流动，形成瀑布视觉效果。
  */
 void fx_waterfall(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
-    // 从高处(y+1)向低处(y)滚动 = 从上往下流
     for (int y = 0; y < h - 1; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t r, g, b;
@@ -106,7 +109,6 @@ void fx_waterfall(const mic_data_t* d, const settings_t* s) {
             led_set_pixel(x, y, r, g, b);          // 向低处移动
         }
     }
-    // 顶部注入新数据 (y = h-1)
     rgb_t c   = palette_color(s->palette, freq_to_color(d->major_peak) + (uint8_t)s_st.hue_off);
     int   bri = (int)(d->volume * 255);
     for (int x = 0; x < w; x++) {
@@ -118,8 +120,9 @@ void fx_waterfall(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_BINMAP (3) - 频谱映射
- * 逻辑：底部向上辐射强光
+ * @brief 频谱映射效果 (FX_BINMAP, #3)
+ *
+ * 各频带强度从底部向上辐射，亮度渐变。
  */
 void fx_binmap(const mic_data_t* d, const settings_t* s) {
     fade_out(64);
@@ -137,7 +140,9 @@ void fx_binmap(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_FREQWAVE (11) - 频率波 (2D 中心扩散版)
+ * @brief 频率波效果 (FX_FREQWAVE, #11)
+ *
+ * 从中心向四周扩散的波纹效果，颜色随主频率变化。
  */
 void fx_freqwave(const mic_data_t* d, const settings_t* s) {
     fade_out(30);
@@ -162,7 +167,9 @@ void fx_freqwave(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_FREQPIXELS (17) - 频率像素
+ * @brief 频率像素效果 (FX_FREQPIXELS, #17)
+ *
+ * 随机位置闪烁像素，颜色和亮度随音频变化。
  */
 void fx_freqpixels(const mic_data_t* d, const settings_t* s) {
     fade_out(255 - s->speed / 2);
@@ -176,8 +183,9 @@ void fx_freqpixels(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_FREQMAP (18) - 频率映射
- * 修复：使用多频带映射，让整个矩阵都有灯光分布
+ * @brief 频率映射效果 (FX_FREQMAP, #18)
+ *
+ * 多频带映射到矩阵不同区域，整体分布灯光。
  */
 void fx_freqmap(const mic_data_t* d, const settings_t* s) {
     fade_out(200);

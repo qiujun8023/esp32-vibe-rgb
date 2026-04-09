@@ -1,6 +1,7 @@
-// net/ws_push.c
-// WebSocket LED 帧推流任务：20fps 广播像素数据 + 音频数据，含 Ping/Pong 心跳
-
+/**
+ * @file ws_push.c
+ * @brief WebSocket LED帧推流任务：20fps广播像素和音频数据
+ */
 #include "ws_push.h"
 
 #include <esp_log.h>
@@ -18,22 +19,30 @@
 
 static const char* TAG = "ws_push";
 
-#define MAX_WS_CLIENTS 4
+#define MAX_HTTP_SOCKETS 16   // 覆盖 httpd 所有连接（HTTP + WS），需 >= max_open_sockets
+#define MAX_WS_CLIENTS   4    // 同时推流的 WS 客户端上限
 
 static httpd_handle_t s_server_ref = NULL;
 
+/**
+ * @brief 推流任务
+ */
 static void push_task(void* arg) {
     TickType_t last           = xTaskGetTickCount();
     int        fps_cnt = 0, fps_val = 0;
     TickType_t fps_ts         = xTaskGetTickCount();
     TickType_t last_ping_tick = xTaskGetTickCount();
 
-    uint8_t* fb  = malloc(LED_MAX_COUNT * 3);
-    char*    msg = malloc(LED_MAX_COUNT * 6 + 1024);
-    if (!fb || !msg) {
-        ESP_LOGE(TAG, "failed to allocate ws buffers");
-        if (fb)  free(fb);
-        if (msg) free(msg);
+    uint8_t* fb = malloc(LED_MAX_COUNT * 3);
+    if (!fb) {
+        ESP_LOGE(TAG, "failed to allocate ws fb buffer");
+        vTaskDelete(NULL);
+        return;
+    }
+    char* msg = malloc(LED_MAX_COUNT * 6 + 1024);
+    if (!msg) {
+        ESP_LOGE(TAG, "failed to allocate ws msg buffer");
+        free(fb);
         vTaskDelete(NULL);
         return;
     }
@@ -43,14 +52,15 @@ static void push_task(void* arg) {
 
         if (!s_server_ref) continue;
 
-        // 获取所有 WS 客户端
-        size_t fds_count = MAX_WS_CLIENTS;
-        int    client_fds[MAX_WS_CLIENTS];
+        // 获取所有连接（HTTP + WS），buffer 必须足够大，否则返回 ESP_ERR_INVALID_SIZE
+        size_t fds_count = MAX_HTTP_SOCKETS;
+        int    client_fds[MAX_HTTP_SOCKETS];
         if (httpd_get_client_list(s_server_ref, &fds_count, client_fds) != ESP_OK) continue;
 
+        // 从全量连接中筛选 WS 客户端
         int ws_fds[MAX_WS_CLIENTS];
         int ws_count = 0;
-        for (size_t i = 0; i < fds_count; i++) {
+        for (size_t i = 0; i < fds_count && ws_count < MAX_WS_CLIENTS; i++) {
             if (httpd_ws_get_fd_info(s_server_ref, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
                 ws_fds[ws_count++] = client_fds[i];
             }
@@ -131,6 +141,9 @@ static void push_task(void* arg) {
     }
 }
 
+/**
+ * @brief 启动推流任务
+ */
 void ws_push_start(httpd_handle_t server) {
     s_server_ref = server;
     xTaskCreate(push_task, "ws_push", 6144, NULL, 4, NULL);

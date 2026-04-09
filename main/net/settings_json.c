@@ -1,15 +1,15 @@
-// net/settings_json.c
-// settings ↔ JSON 序列化/反序列化
-// 修复：
-//   1. settings_to_json 接受快照指针，不持锁，避免持锁期间堆分配
-//   2. settings_from_cjson 接受已解析的 cJSON*，避免二次解析
-
+/**
+ * @file settings_json.c
+ * @brief settings与JSON的序列化/反序列化
+ */
 #include "settings_json.h"
 
 #include <lwip/inet.h>
 #include <string.h>
 
-// ── 序列化：settings → JSON 字符串 ───────────────────────────────────────────
+/**
+ * @brief 将settings快照序列化为JSON字符串
+ */
 char* settings_to_json(const settings_t* s) {
     cJSON* root = cJSON_CreateObject();
 
@@ -58,7 +58,9 @@ char* settings_to_json(const settings_t* s) {
     return str;
 }
 
-// ── 反序列化：cJSON* → settings 字段（避免二次解析） ─────────────────────────
+/**
+ * @brief 从已解析的cJSON对象中读取字段
+ */
 bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     if (!root || !s || !need_restart) return false;
     *need_restart = false;
@@ -94,13 +96,13 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     WATCH_INT("led_gpio",       led_gpio);
     WATCH_INT("led_w",          led_w);
     WATCH_INT("led_h",          led_h);
-    WATCH_INT("led_serpentine", led_serpentine);
-    WATCH_INT("led_start",      led_start);
     WATCH_INT("mic_sck",        mic_sck);
     WATCH_INT("mic_ws",         mic_ws);
     WATCH_INT("mic_din",        mic_din);
 
     // 普通字段
+    GET_INT("led_serpentine", led_serpentine);
+    GET_INT("led_start",      led_start);
     GET_INT("led_rotation", led_rotation);
     GET_INT("ip_mode",      ip_mode);
     GET_INT("brightness",   brightness);

@@ -1,12 +1,15 @@
 /**
- * 重力类效果：JUGGLES, GRAVIMETER, GRAVCENTER, GRAVCENTRIC, GRAVFREQ, 2DFUNKYPLANK
+ * @file fx_gravity.c
+ * @brief 重力类效果：弹跳球、重力计等
  */
 #include "effects_internal.h"
 
 #include <esp_random.h>
 
 /**
- * FX_JUGGLES (3) - 弹跳球 (2D 适配版)
+ * @brief 弹跳球效果 (FX_JUGGLES, #14)
+ *
+ * 多个球体在矩阵内弹跳，颜色渐变。
  */
 void fx_juggles(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 100);
@@ -43,51 +46,54 @@ void fx_juggles(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_GRAVIMETER (5) - 重力计 (2D 频谱版)
- * 修复：改用 fade_out 替代清屏，上升时平滑过渡，消除频闪
+ * @brief 重力计效果 (FX_GRAVIMETER, #5)
+ *
+ * 频谱柱带重力下落效果，上升平滑、下落加速。
  */
 void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
-    fade_out(30);  // 改用 fade_out 替代 led_clear，消除频闪
     int w = W, h = H;
     float gravity = (10 - s->speed / 32) * 0.05f;
 
     for (int x = 0; x < w && x < 64; x++) {
-        int   band = x * MIC_BANDS / w;
-        float val  = d->bands[band];
+        int   band     = x * MIC_BANDS / w;
+        float val      = d->bands[band];
         float target_h = val * h;
 
         if (target_h >= s_st.grav_pos[x]) {
-            // 上升时平滑过渡，而非立即跳变
-            float rise_speed = 0.7f;  // 上升速度系数
-            s_st.grav_pos[x] += (target_h - s_st.grav_pos[x]) * rise_speed;
+            s_st.grav_pos[x] += (target_h - s_st.grav_pos[x]) * 0.7f;
             s_st.grav_vel[x] = 0;
         } else {
-            // 下落时带重力加速
             s_st.grav_vel[x] += gravity;
             s_st.grav_pos[x] -= s_st.grav_vel[x];
             if (s_st.grav_pos[x] < 0) s_st.grav_pos[x] = 0;
         }
 
-        rgb_t c = palette_color(s->palette, x * 255 / w);
+        rgb_t c  = palette_color(s->palette, x * 255 / w);
         int   py = (int)s_st.grav_pos[x];
-        for (int y = 0; y < py && y < h; y++) {
-            if (s->freq_dir == 0) led_set_pixel(x, y, c.r, c.g, c.b);
-            else led_set_pixel(y, x, c.r, c.g, c.b);
+        if (py > h) py = h;
+
+        // 逐像素写入：亮区着色、暗区清零（不依赖 fade_out）
+        for (int y = 0; y < h; y++) {
+            uint8_t r = (y < py) ? c.r : 0;
+            uint8_t g = (y < py) ? c.g : 0;
+            uint8_t bv = (y < py) ? c.b : 0;
+            if (s->freq_dir == 0) led_set_pixel(x, y, r, g, bv);
+            else                  led_set_pixel(y, x, r, g, bv);
         }
     }
 }
 
 /**
- * FX_GRAVCENTER (21) - 重力中心 (2D 镜像强化版)
+ * @brief 重力中心效果 (FX_GRAVCENTER, #6)
+ *
+ * 从中心向两侧扩展的频谱条，带重力效果。
  */
 void fx_gravcenter(const mic_data_t* d, const settings_t* s) {
-    fade_out(30);
     int w = W, h = H;
     int cx = w / 2;
 
     for (int b = 0; b < MIC_BANDS; b++) {
         float val = d->bands[b];
-        // 增益补偿让条形更长
         int   len = (int)(val * (w / 2) * 1.5f);
         if (len > w / 2) len = w / 2;
         if (len < 1 && val > 0.05f) len = 1;
@@ -95,18 +101,21 @@ void fx_gravcenter(const mic_data_t* d, const settings_t* s) {
         rgb_t c = palette_color(s->palette, b * 32);
         int   y = b * h / MIC_BANDS;
 
-        for (int i = 0; i < len; i++) {
-            led_set_pixel(cx + i, y, c.r, c.g, c.b);
-            led_set_pixel(cx - 1 - i, y, c.r, c.g, c.b);
+        // 整行逐像素写入：亮区着色、暗区清零
+        for (int x = 0; x < w; x++) {
+            int dist = (x >= cx) ? (x - cx) : (cx - 1 - x);
+            if (dist < len) led_set_pixel(x, y, c.r, c.g, c.b);
+            else            led_set_pixel(x, y, 0, 0, 0);
         }
     }
 }
 
 /**
- * FX_GRAVCENTRIC (22) - 重力偏心 (2D 对称版)
+ * @brief 重力偏心效果 (FX_GRAVCENTRIC, #7)
+ *
+ * 从中间向上下扩展的频谱条，带重力效果。
  */
 void fx_gravcentric(const mic_data_t* d, const settings_t* s) {
-    fade_out(30);
     int w = W, h = H;
     int cy = h / 2;
 
@@ -119,22 +128,27 @@ void fx_gravcentric(const mic_data_t* d, const settings_t* s) {
         rgb_t c = palette_color(s->palette, (uint8_t)(s_st.hue_off + b * 20));
         int   x = b * w / MIC_BANDS;
 
-        for (int i = 0; i < len; i++) {
-            led_set_pixel(x, cy + i, c.r, c.g, c.b);
-            led_set_pixel(x, cy - 1 - i, c.r, c.g, c.b);
+        // 整列逐像素写入：亮区着色、暗区清零
+        for (int y = 0; y < h; y++) {
+            int dist = (y >= cy) ? (y - cy) : (cy - 1 - y);
+            if (dist < len) led_set_pixel(x, y, c.r, c.g, c.b);
+            else            led_set_pixel(x, y, 0, 0, 0);
         }
     }
     s_st.hue_off += 0.5f;
 }
 
 /**
- * FX_GRAVFREQ (23) - 重力频率
+ * @brief 重力频率效果 (FX_GRAVFREQ, #8)
+ *
+ * 频谱条从中心向两侧扩展，颜色随主频率变化。
  */
 void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
-    fade_out(40);
     int w = W, h = H;
     int cx = w / 2;
     int bri = (int)(d->volume * 255);
+
+    rgb_t c = palette_color(s->palette, freq_to_color(d->major_peak));
 
     for (int b = 0; b < MIC_BANDS; b++) {
         int   y   = b * h / MIC_BANDS;
@@ -142,19 +156,19 @@ void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
         int   len = (int)(val * (w / 2) * 1.5f);
         if (len > w / 2) len = w / 2;
 
-        rgb_t c = palette_color(s->palette, freq_to_color(d->major_peak));
-        
-        for (int i = 0; i < len; i++) {
-            led_set_pixel(cx + i, y, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
-            led_set_pixel(cx - 1 - i, y, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
+        // 整行逐像素写入：亮区着色、暗区清零
+        for (int x = 0; x < w; x++) {
+            int dist = (x >= cx) ? (x - cx) : (cx - 1 - x);
+            if (dist < len) led_set_pixel(x, y, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
+            else            led_set_pixel(x, y, 0, 0, 0);
         }
     }
 }
 
 /**
- * FX_2DFUNKYPLANK (25) - 下落木板
- * 坐标系：y=0 是底部，y=h-1 是顶部
- * 逻辑：木板从顶部向下落，新木板从顶部注入
+ * @brief 下落木板效果 (FX_2DFUNKYPLANK, #9)
+ *
+ * 频谱数据形成木板从顶部向下落。
  */
 void fx_2dfunkyplank(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;

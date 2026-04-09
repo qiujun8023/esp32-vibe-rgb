@@ -15,6 +15,7 @@ void led_fill(uint8_t r, uint8_t g, uint8_t b);
 void led_clear(void);
 void led_flush(void);
 void led_set_pixel_idx(int idx, uint8_t r, uint8_t g, uint8_t b);
+void led_hw_test_pixel(int idx, uint8_t r, uint8_t g, uint8_t b);
 void led_fade_all(uint8_t rate);
 void led_blur2d(uint8_t amount);
 void led_get_fb(uint8_t* buf, int* len);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define EFFECT_COUNT 28
 
@@ -56,3 +57,4 @@ void effects_update(const mic_data_t* data, const settings_t* s);
 
 void effects_pause(void);
 void effects_resume(void);
+bool effects_is_paused(void);

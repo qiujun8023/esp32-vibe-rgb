@@ -1,13 +1,15 @@
 /**
- * 其他效果：PIXELS, PIXELWAVE, MATRIPIX, PUDDLES, PUDDLEPEAK,
- *           RIPPLEPEAK, DJLIGHT, 2DCENTERBARS, BLURZ
+ * @file fx_misc.c
+ * @brief 其他效果：随机像素、波浪、涟漪、DJ灯光等
  */
 #include "effects_internal.h"
 
 #include <esp_random.h>
 
 /**
- * FX_PIXELS (1) - 随机像素
+ * @brief 随机像素效果 (FX_PIXELS, #19)
+ *
+ * 随机位置闪烁像素，颜色渐变。
  */
 void fx_pixels(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed);
@@ -29,7 +31,9 @@ void fx_pixels(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_PIXELWAVE (2) - 像素波 (2D 圆形扩散)
+ * @brief 像素波效果 (FX_PIXELWAVE, #12)
+ *
+ * 从中心向外扩散的圆形波纹效果。
  */
 void fx_pixelwave(const mic_data_t* d, const settings_t* s) {
     fade_out(240);
@@ -58,7 +62,9 @@ void fx_pixelwave(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_MATRIPIX (4) - 矩阵像素
+ * @brief 矩阵像素效果 (FX_MATRIPIX, #10)
+ *
+ * 频谱数据从右向左滚动显示。
  */
 void fx_matripix(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
@@ -74,7 +80,6 @@ void fx_matripix(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    // 在右侧注入
     int rx = w - 1;
     for (int b = 0; b < h; b++) {
         int   band  = b * MIC_BANDS / h;
@@ -86,7 +91,9 @@ void fx_matripix(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_PUDDLES (7) - 水塘
+ * @brief 水塘效果 (FX_PUDDLES, #16)
+ *
+ * 音量触发随机位置的水塘扩散效果。
  */
 void fx_puddles(const mic_data_t* d, const settings_t* s) {
     fade_out(255 - s->speed / 2);
@@ -110,20 +117,18 @@ void fx_puddles(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_PUDDLEPEAK (17) - 水塘峰值
+ * @brief 水塘峰值效果 (FX_PUDDLEPEAK, #15)
+ *
+ * 音量触发随机水塘，基于概率而非节拍。
  */
 void fx_puddlepeak(const mic_data_t* d, const settings_t* s) {
-    fade_out(20 + s->speed / 8); // 较慢的衰减，保留美感
+    fade_out(20 + s->speed / 8);
 
-    // 改用基于音量的随机概率触发，解决持续声音不亮的问题
     float chance = d->volume * (s->intensity / 64.0f + 1.0f);
-    
-    // 如果音量足够大，且随机数击中概率，则产生一个水塘
     if (d->volume > 0.2f && (esp_random() % 100) < (int)(chance * 15)) {
         int   size = (int)(d->volume * 3) + 1;
         int   x    = esp_random() % W;
         int   y    = esp_random() % H;
-        // 使用调色板颜色，增加随机偏移
         rgb_t c    = palette_color(s->palette, (uint8_t)esp_random());
 
         for (int dy = -size; dy <= size; dy++) {
@@ -137,20 +142,20 @@ void fx_puddlepeak(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_RIPPLEPEAK (19) - 涟漪峰值
+ * @brief 涟漪峰值效果 (FX_RIPPLEPEAK, #13)
+ *
+ * 音量触发涟漪扩散效果，最多同时16个涟漪。
  */
 void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
     fade_out(40);
 
-    // 基于音量的多重触发逻辑
     if (d->volume > 0.4f) {
-        // 查找空闲的涟漪槽位
         for (int i = 0; i < MAX_RIPPLES; i++) {
             if (s_st.ripple[i].state < 0 && (esp_random() % 100 < 10)) {
                 s_st.ripple[i].pos   = esp_random() % (W * H);
                 s_st.ripple[i].color = (uint8_t)esp_random();
                 s_st.ripple[i].state = 0;
-                break; // 每帧最多新增一个，防止过密
+                break;
             }
         }
     }
@@ -165,7 +170,6 @@ void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
         int   r     = s_st.ripple[i].state;
         int   max_r = s->intensity / 16 + 2;
 
-        // 绘制圆环
         for (float a = 0; a < 6.28f; a += 0.2f) {
             int px = cx + (int)(cosf(a) * r);
             int py = cy + (int)(sinf(a) * r);
@@ -179,7 +183,9 @@ void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_DJLIGHT (24) - DJ灯光
+ * @brief DJ灯光效果 (FX_DJLIGHT, #27)
+ *
+ * 模拟DJ灯光效果，随机扫描线和填充。
  */
 void fx_djlight(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed);
@@ -198,11 +204,11 @@ void fx_djlight(const mic_data_t* d, const settings_t* s) {
 }
 
 /**
- * FX_2DCENTERBARS (26) - 中心柱
- * 修复：去掉 h-1-y 反转，让柱子从底部向上长
+ * @brief 中心柱效果 (FX_2DCENTERBARS, #2)
+ *
+ * 频谱柱从中心向两侧显示，支持水平和垂直居中。
  */
 void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
-    fade_out(s->speed);
     int w = W, h = H;
 
     bool center_h = s->custom1 > 128;
@@ -216,7 +222,6 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
         if (band >= MIC_BANDS) band = MIC_BANDS - 1;
 
         int bar_height = (int)(d->bands[band] * h);
-        // 柱子从底部向上长，y_start = 0（底部），y_end = bar_height
         int y_start = center_h ? (h - bar_height) / 2 : 0;
 
         for (int y = 0; y < h; y++) {
@@ -229,32 +234,32 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
             }
             rgb_t c = palette_color(s->palette, (uint8_t)color_idx);
 
+            // 逐像素写入：亮区着色、暗区清零（不依赖 fade_out）
             uint8_t is_bar = (y >= y_start && y < y_start + bar_height) ? 1 : 0;
-            if (is_bar) {
-                if (center_v) {
-                    led_set_pixel(w / 2 + x, y, c.r, c.g, c.b);
-                    led_set_pixel(w / 2 - 1 - x, y, c.r, c.g, c.b);
-                } else {
-                    led_set_pixel(x, y, c.r, c.g, c.b);
-                }
+            uint8_t r = is_bar ? c.r : 0;
+            uint8_t g = is_bar ? c.g : 0;
+            uint8_t bv = is_bar ? c.b : 0;
+            if (center_v) {
+                led_set_pixel(w / 2 + x, y, r, g, bv);
+                led_set_pixel(w / 2 - 1 - x, y, r, g, bv);
+            } else {
+                led_set_pixel(x, y, r, g, bv);
             }
         }
     }
 }
 
 /**
- * FX_BLURZ (27) - 模糊色块
- * 修复：改用音量触发，增加每次添加的像素数量和大小
+ * @brief 模糊色块效果 (FX_BLURZ, #26)
+ *
+ * 音量触发随机色块，叠加模糊效果。
  */
 void fx_blurz(const mic_data_t* d, const settings_t* s) {
     led_blur2d(s->custom2);
     fade_out(s->speed);
 
-    // 改用音量触发，而非节拍检测
     float trigger = d->volume * (s->intensity / 64.0f + 1.0f);
-    
     if (d->volume > 0.15f && (esp_random() % 100) < (int)(trigger * 20)) {
-        // 根据音量决定添加的像素数量
         int count = (int)(d->volume * 4) + 1;
         
         for (int i = 0; i < count; i++) {

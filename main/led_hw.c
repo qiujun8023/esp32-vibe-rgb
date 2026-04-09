@@ -82,16 +82,34 @@ void led_clear(void) {
     if (s_strip) led_strip_clear(s_strip);
 }
 
-// ── 刷新输出（施加亮度缩放） ───────────────────────────────────────────────────
+// ── 刷新输出（最后进行物理映射与亮度缩放） ────────────────────────────────────
 void led_flush(void) {
     if (!s_strip) return;
 
+    led_strip_clear(s_strip);
+
     int count = s_w * s_h;
-    for (int i = 0; i < count; i++) {
-        led_strip_set_pixel(s_strip, i,
-                            scale_brightness(s_fb[i * 3]),
-                            scale_brightness(s_fb[i * 3 + 1]),
-                            scale_brightness(s_fb[i * 3 + 2]));
+    for (int y = 0; y < s_h; y++) {
+        for (int x = 0; x < s_w; x++) {
+            int phy_idx = s_lookup[y * s_w + x];
+            if (phy_idx >= 0 && phy_idx < count) {
+                int log_base = (y * s_w + x) * 3;
+                led_strip_set_pixel(s_strip, phy_idx,
+                                    scale_brightness(s_fb[log_base]),
+                                    scale_brightness(s_fb[log_base + 1]),
+                                    scale_brightness(s_fb[log_base + 2]));
+            }
+        }
+    }
+    led_strip_refresh(s_strip);
+}
+
+// ── 提供给Web测试布线的物理硬件后门 ──────────────────────────────────────
+void led_hw_test_pixel(int idx, uint8_t r, uint8_t g, uint8_t b) {
+    if (!s_strip) return;
+    led_strip_clear(s_strip);
+    if (idx >= 0 && idx < s_w * s_h) {
+        led_strip_set_pixel(s_strip, idx, r, g, b);
     }
     led_strip_refresh(s_strip);
 }
