@@ -14,9 +14,11 @@
 #include <string.h>
 
 #include "config.h"
-#include "effects.h"
 
 static const char* TAG = "settings";
+
+/* 默认效果参数表 */
+static const uint8_t DEFAULT_PARAMS[EFFECT_COUNT][3] = DEFAULT_EFFECT_PARAMS;
 
 static SemaphoreHandle_t s_mutex = NULL;
 static settings_t        s;
@@ -58,7 +60,11 @@ static void settings_set_defaults(void) {
     s.custom1        = DEF_CUSTOM1;
     s.custom2        = DEF_CUSTOM2;
     s.custom3        = DEF_CUSTOM3;
-    s.cfg_version    = SETTINGS_VERSION;
+
+    /* 初始化每个效果的独立参数 */
+    memcpy(s.effect_params, DEFAULT_PARAMS, sizeof(s.effect_params));
+
+    s.cfg_version = SETTINGS_VERSION;
 }
 
 void settings_init(void) {
@@ -81,12 +87,19 @@ void settings_init(void) {
     esp_err_t ret = nvs_get_blob(h, NVS_KEY_SETTINGS, &s, &len);
     nvs_close(h);
 
-    if (ret == ESP_OK && len >= sizeof(s) - sizeof(s.cfg_version)) {
+    if (ret == ESP_OK && len > 0) {
+        /* blob 比当前 struct 小（旧版本），新增字段已由 settings_set_defaults() 初始化 */
         if (len < sizeof(s)) s.cfg_version = 0;
         ESP_LOGI(TAG, "settings loaded v%d", s.cfg_version);
 
         if (s.cfg_version < SETTINGS_VERSION) {
             ESP_LOGW(TAG, "config version mismatch, upgrading");
+
+            /* 版本 1 -> 2: 新增 effect_params */
+            if (s.cfg_version < 2) {
+                memcpy(s.effect_params, DEFAULT_PARAMS, sizeof(s.effect_params));
+            }
+
             s.cfg_version = SETTINGS_VERSION;
             settings_validate(&s);
             settings_save();
@@ -97,6 +110,9 @@ void settings_init(void) {
     }
 
     settings_validate(&s);
+
+    /* 加载当前效果的参数 */
+    settings_effect_load_params(s.effect);
 }
 
 settings_t* settings_get(void) {
@@ -147,4 +163,13 @@ bool settings_wifi_configured(void) {
     bool configured = (s.ssid[0] != '\0' && strlen(s.ssid) >= 2);
     settings_unlock();
     return configured;
+}
+
+void settings_effect_load_params(uint8_t effect_id) {
+    if (effect_id >= EFFECT_COUNT) return;
+    settings_lock();
+    s.custom1 = s.effect_params[effect_id][0];
+    s.custom2 = s.effect_params[effect_id][1];
+    s.custom3 = s.effect_params[effect_id][2];
+    settings_unlock();
 }

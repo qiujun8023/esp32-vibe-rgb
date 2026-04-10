@@ -163,6 +163,18 @@ static esp_err_t handle_ws(httpd_req_t* req) {
     mic_apply_settings(&snap);
     effects_set_mode(snap.effect);
 
+    /* 推送更新后的配置给前端 */
+    char* json = settings_to_json(&snap);
+    if (json) {
+        httpd_ws_frame_t resp = {
+            .type    = HTTPD_WS_TYPE_TEXT,
+            .payload = (uint8_t*)json,
+            .len     = strlen(json),
+        };
+        httpd_ws_send_frame(req, &resp);
+        free(json);
+    }
+
     if (restart) {
         settings_save();
         ESP_LOGW(TAG, "critical settings changed, restarting");
@@ -206,15 +218,15 @@ static esp_err_t handle_save(httpd_req_t* req) {
     mic_apply_settings(&snap);
     effects_set_mode(snap.effect);
 
-    cJSON* r = cJSON_CreateObject();
-    cJSON_AddBoolToObject(r, "ok", true);
-    cJSON_AddBoolToObject(r, "restart_required", restart);
-    char* json = cJSON_PrintUnformatted(r);
-    cJSON_Delete(r);
-
+    /* 返回完整配置，前端可同步 custom1/2/3 */
+    char* json = settings_to_json(&snap);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json);
-    free(json);
+    if (json) {
+        httpd_resp_sendstr(req, json);
+        free(json);
+    } else {
+        httpd_resp_sendstr(req, "{\"ok\":true}");
+    }
 
     if (restart) {
         vTaskDelay(pdMS_TO_TICKS(1000));

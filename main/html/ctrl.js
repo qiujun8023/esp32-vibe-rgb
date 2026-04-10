@@ -269,17 +269,16 @@ function connectWebSocket() {
   App.socket.onmessage = e => {
     try {
       const data = JSON.parse(e.data);
-
-      // 合并所有状态（包括 pixels 消息中的 fps/volume 等）
       Object.assign(App.state, data);
 
-      // 如果有像素数据，渲染预览
       if (data.pixels) {
+        // 推流帧：仅渲染画面和更新遥测，不重置控件
         renderMatrix(data.pixels);
+        updateStatusDisplay();
+      } else {
+        // 配置响应：全量同步 UI
+        syncUI();
       }
-
-      // 同步 UI（排除只读字段）
-      syncUI();
     } catch (err) {
       console.error('消息解析失败:', err);
     }
@@ -303,8 +302,8 @@ function scheduleReconnect() {
 function sendUpdate() {
   if (!App.socket || App.socket.readyState !== WebSocket.OPEN) return;
 
-  // 只发送可配置字段，排除只读状态
-  const { fps, volume, heap, rssi, uptime, pixels, bands, beat, ...payload } = App.state;
+  // 只发送可配置字段，排除只读状态和服务端内部状态
+  const { fps, volume, heap, rssi, uptime, pixels, bands, beat, effect_params, ...payload } = App.state;
   App.socket.send(JSON.stringify(payload));
 }
 
@@ -595,15 +594,11 @@ function renderLedPreview() {
   // 绘制连线（RGB 渐变）
   for (let i = 1; i < points.length; i++) {
     const t = i / total;
-    const gradient = ctx.createLinearGradient(
-      points[i - 1].x, points[i - 1].y, points[i].x, points[i].y
-    );
 
     // RGB 色相循环
     const hue = (t * 360) % 360;
-    const color = `hsl(${hue}, 100%, 60%)`;
 
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(points[i - 1].x, points[i - 1].y);

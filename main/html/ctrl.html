@@ -160,16 +160,16 @@
         <div class="panel-body">
           <div class="fields-list">
             <div class="field-row">
-              <label class="field-label" style="min-width: 80px;">WS (LRCK)</label>
-              <input type="number" class="field-input" id="mic_ws" min="0" max="48" value="4" style="flex:1">
+              <label class="field-label w-80">WS (LRCK)</label>
+              <input type="number" class="field-input flex" id="mic_ws" min="0" max="48" value="4">
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 80px;">SCK (BCLK)</label>
-              <input type="number" class="field-input" id="mic_sck" min="0" max="48" value="5" style="flex:1">
+              <label class="field-label w-80">SCK (BCLK)</label>
+              <input type="number" class="field-input flex" id="mic_sck" min="0" max="48" value="5">
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 80px;">DIN (DATA)</label>
-              <input type="number" class="field-input" id="mic_din" min="0" max="48" value="6" style="flex:1">
+              <label class="field-label w-80">DIN (DATA)</label>
+              <input type="number" class="field-input flex" id="mic_din" min="0" max="48" value="6">
             </div>
           </div>
         </div>
@@ -201,27 +201,27 @@
         <div class="panel-body">
           <div class="fields-list">
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">GPIO</label>
-              <input type="number" class="field-input" id="led_gpio" min="0" max="48" value="16" style="flex:1">
+              <label class="field-label w-50">GPIO</label>
+              <input type="number" class="field-input flex" id="led_gpio" min="0" max="48" value="16">
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">宽度</label>
-              <input type="number" class="field-input" id="led_w" min="1" max="32" value="8" style="flex:1">
+              <label class="field-label w-50">宽度</label>
+              <input type="number" class="field-input flex" id="led_w" min="1" max="32" value="8">
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">高度</label>
-              <input type="number" class="field-input" id="led_h" min="1" max="32" value="8" style="flex:1">
+              <label class="field-label w-50">高度</label>
+              <input type="number" class="field-input flex" id="led_h" min="1" max="32" value="8">
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">走线</label>
-              <select class="field-select" id="led_serpentine" style="flex:1">
+              <label class="field-label w-50">走线</label>
+              <select class="field-select flex" id="led_serpentine">
                 <option value="1">蛇形</option>
                 <option value="0">顺序</option>
               </select>
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">起点</label>
-              <select class="field-select" id="led_start" style="flex:1">
+              <label class="field-label w-50">起点</label>
+              <select class="field-select flex" id="led_start">
                 <option value="0">左下</option>
                 <option value="1">右下</option>
                 <option value="2">左上</option>
@@ -229,8 +229,8 @@
               </select>
             </div>
             <div class="field-row">
-              <label class="field-label" style="min-width: 50px;">旋转</label>
-              <select class="field-select" id="led_rotation" style="flex:1">
+              <label class="field-label w-50">旋转</label>
+              <select class="field-select flex" id="led_rotation">
                 <option value="0">0°</option>
                 <option value="1">90°</option>
                 <option value="2">180°</option>
@@ -249,8 +249,8 @@
         <div class="panel-body">
           <div class="led-preview-wrap">
             <canvas id="led-preview"></canvas>
-            <div class="preview-actions" style="width: 100%; display: flex; margin-top: 10px;">
-              <button class="action-btn outline" onclick="testLedOrder()" id="btn-test" style="flex: 1;">测试接线顺序</button>
+            <div class="preview-actions">
+              <button class="action-btn outline flex" onclick="testLedOrder()" id="btn-test">测试接线顺序</button>
             </div>
           </div>
         </div>
@@ -268,11 +268,11 @@
           <div class="fields-list">
             <div class="field-row">
               <label class="field-label">名称</label>
-              <input type="text" class="field-input" id="cfg_ssid" placeholder="SSID" style="flex:1">
+              <input type="text" class="field-input flex" id="cfg_ssid" placeholder="SSID">
             </div>
             <div class="field-row">
               <label class="field-label">密码</label>
-              <input type="password" class="field-input" id="pass_new" placeholder="密码" style="flex:1">
+              <input type="password" class="field-input flex" id="pass_new" placeholder="密码">
             </div>
           </div>
         </div>
@@ -284,25 +284,27 @@
           <span class="panel-badge">需重启</span>
         </div>
         <div class="panel-body">
-          <div class="field-row">
-            <label class="field-label">模式</label>
-            <select class="field-select" id="ip_mode" style="flex:1">
-              <option value="0">DHCP（自动）</option>
-              <option value="1">静态 IP</option>
-            </select>
+          <div class="fields-list">
+            <div class="field-row">
+              <label class="field-label">模式</label>
+              <select class="field-select flex" id="ip_mode">
+                <option value="0">DHCP（自动）</option>
+                <option value="1">静态 IP</option>
+              </select>
+            </div>
           </div>
           <div class="fields-list collapsible" id="static-ip-fields">
             <div class="field-row">
               <label class="field-label">IP</label>
-              <input type="text" class="field-input" id="s_ip" placeholder="192.168.1.100" style="flex:1">
+              <input type="text" class="field-input flex" id="s_ip" placeholder="192.168.1.100">
             </div>
             <div class="field-row">
               <label class="field-label">子网</label>
-              <input type="text" class="field-input" id="s_mask" placeholder="255.255.255.0" style="flex:1">
+              <input type="text" class="field-input flex" id="s_mask" placeholder="255.255.255.0">
             </div>
             <div class="field-row">
               <label class="field-label">网关</label>
-              <input type="text" class="field-input" id="s_gw" placeholder="192.168.1.1" style="flex:1">
+              <input type="text" class="field-input flex" id="s_gw" placeholder="192.168.1.1">
             </div>
           </div>
         </div>
@@ -338,10 +340,10 @@
           <h2>操作</h2>
         </div>
         <div class="panel-body">
-          <div class="actions-stack">
-            <button class="action-btn primary large" onclick="saveAllSettings()">保存配置</button>
-            <button class="action-btn warning large" onclick="doReboot()">重启设备</button>
-            <button class="action-btn danger large" onclick="factoryReset()">恢复出厂设置</button>
+          <div class="actions-row">
+            <button class="action-btn warning" onclick="doReboot()">重启</button>
+            <button class="action-btn primary" onclick="saveAllSettings()">保存</button>
+            <button class="action-btn danger" onclick="factoryReset()">重置</button>
           </div>
         </div>
       </div>

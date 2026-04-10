@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define EFFECT_COUNT 28
+#include "config.h"
 
 /* 经典频谱类 */
 #define FX_SPECTRUM     0

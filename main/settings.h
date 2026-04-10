@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
+
 /**
  * @brief 系统全局配置
  */
@@ -49,10 +51,12 @@ typedef struct {
     uint8_t custom2;
     uint8_t custom3;
 
+    uint8_t effect_params[EFFECT_COUNT][3]; /* 每个效果的独立参数 */
+
     uint8_t cfg_version;
 } settings_t;
 
-#define SETTINGS_VERSION 1
+#define SETTINGS_VERSION 2
 
 /**
  * @brief 初始化配置（从 NVS 加载或使用默认值）
@@ -93,3 +97,8 @@ void settings_factory_reset(void);
  * @brief 检查 WiFi 是否已配置
  */
 bool settings_wifi_configured(void);
+
+/**
+ * @brief 加载指定效果的参数到 custom1/2/3
+ */
+void settings_effect_load_params(uint8_t effect_id);

@@ -111,7 +111,6 @@ body {
   max-width: 420px;
   margin: 0 auto;
   padding: var(--space-4);
-  padding-bottom: var(--space-8);
 }
 
 /* === 头部 === */
@@ -637,17 +636,43 @@ body {
   image-rendering: auto;
 }
 
-/* === 操作按钮 === */
-.action-row {
-  display: flex;
-  justify-content: center;
-  margin-top: var(--space-4);
-}
+/* === 操作按钮组 === */
 
+/* 垂直堆叠（默认） */
 .actions-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* 水平排列 */
+.actions-row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.actions-row > .action-btn {
+  flex: 1;
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 380px) {
+  .actions-row {
+    flex-direction: column;
+  }
+
+  .actions-row > .action-btn {
+    padding: var(--space-5) var(--space-6);
+    font-size: var(--text-base);
+  }
+}
+
+/* 居中单个按钮 */
+.actions-center {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-4);
 }
 
 .action-btn {
@@ -682,6 +707,28 @@ body {
 .action-btn.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 0 30px var(--accent-glow), var(--shadow-lg);
+}
+
+.action-btn.outline {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.action-btn.outline:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.action-btn.warning {
+  color: var(--warning);
+  border-color: var(--warning-muted);
+}
+
+.action-btn.warning:hover {
+  background: var(--warning-muted);
+  border-color: var(--warning);
 }
 
 .action-btn.danger {
@@ -857,4 +904,29 @@ body {
 ::selection {
   background: var(--accent-muted);
   color: var(--text-primary);
+}
+
+/* === 辅助类（替代内联样式） === */
+
+/* 字段标签宽度变体 */
+.field-label.w-50 {
+  min-width: 50px;
+}
+
+.field-label.w-80 {
+  min-width: 80px;
+}
+
+/* 弹性填充 */
+.field-input.flex,
+.field-select.flex,
+.action-btn.flex {
+  flex: 1;
+}
+
+/* LED 预览操作区 */
+.preview-actions {
+  width: 100%;
+  display: flex;
+  margin-top: var(--space-3);
 }

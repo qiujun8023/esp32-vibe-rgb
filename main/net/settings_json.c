@@ -55,6 +55,17 @@ char* settings_to_json(const settings_t* s) {
     cJSON_AddNumberToObject(root, "custom2", s->custom2);
     cJSON_AddNumberToObject(root, "custom3", s->custom3);
 
+    /* 效果参数数组 */
+    cJSON* params_arr = cJSON_CreateArray();
+    for (int i = 0; i < EFFECT_COUNT; i++) {
+        cJSON* effect_arr = cJSON_CreateArray();
+        cJSON_AddItemToArray(effect_arr, cJSON_CreateNumber(s->effect_params[i][0]));
+        cJSON_AddItemToArray(effect_arr, cJSON_CreateNumber(s->effect_params[i][1]));
+        cJSON_AddItemToArray(effect_arr, cJSON_CreateNumber(s->effect_params[i][2]));
+        cJSON_AddItemToArray(params_arr, effect_arr);
+    }
+    cJSON_AddItemToObject(root, "effect_params", params_arr);
+
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return str;
@@ -117,13 +128,60 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     GET_FLT("gain", gain);
     GET_INT("squelch", squelch);
     GET_INT("fft_smooth", fft_smooth);
+    uint8_t old_effect = s->effect;
     GET_INT("effect", effect);
+
+    /* 效果切换时：保存旧参数，加载新参数 */
+    if (s->effect != old_effect && s->effect < EFFECT_COUNT) {
+        s->effect_params[old_effect][0] = s->custom1;
+        s->effect_params[old_effect][1] = s->custom2;
+        s->effect_params[old_effect][2] = s->custom3;
+        s->custom1                      = s->effect_params[s->effect][0];
+        s->custom2                      = s->effect_params[s->effect][1];
+        s->custom3                      = s->effect_params[s->effect][2];
+    }
+
     GET_INT("palette", palette);
     GET_INT("speed", speed);
     GET_INT("intensity", intensity);
-    GET_INT("custom1", custom1);
-    GET_INT("custom2", custom2);
-    GET_INT("custom3", custom3);
+
+    /* effect_params 数组反序列化（可选，用于完整配置恢复） */
+    cJSON* params_arr = cJSON_GetObjectItem(root, "effect_params");
+    if (params_arr && cJSON_IsArray(params_arr)) {
+        int count = cJSON_GetArraySize(params_arr);
+        for (int i = 0; i < count && i < EFFECT_COUNT; i++) {
+            cJSON* effect_arr = cJSON_GetArrayItem(params_arr, i);
+            if (effect_arr && cJSON_IsArray(effect_arr)) {
+                for (int j = 0; j < 3; j++) {
+                    cJSON* val = cJSON_GetArrayItem(effect_arr, j);
+                    if (val && cJSON_IsNumber(val)) {
+                        s->effect_params[i][j] = (uint8_t)val->valueint;
+                    }
+                }
+            }
+        }
+        /* 从数组同步当前效果的运行时参数 */
+        s->custom1 = s->effect_params[s->effect][0];
+        s->custom2 = s->effect_params[s->effect][1];
+        s->custom3 = s->effect_params[s->effect][2];
+    }
+
+    /* 参数更新时：保存到当前效果（优先级最高，覆盖 effect_params 的同步结果） */
+    cJSON* c1_it = cJSON_GetObjectItem(root, "custom1");
+    cJSON* c2_it = cJSON_GetObjectItem(root, "custom2");
+    cJSON* c3_it = cJSON_GetObjectItem(root, "custom3");
+    if (c1_it && cJSON_IsNumber(c1_it)) {
+        s->custom1                     = (uint8_t)c1_it->valueint;
+        s->effect_params[s->effect][0] = s->custom1;
+    }
+    if (c2_it && cJSON_IsNumber(c2_it)) {
+        s->custom2                     = (uint8_t)c2_it->valueint;
+        s->effect_params[s->effect][1] = s->custom2;
+    }
+    if (c3_it && cJSON_IsNumber(c3_it)) {
+        s->custom3                     = (uint8_t)c3_it->valueint;
+        s->effect_params[s->effect][2] = s->custom3;
+    }
 
     /* 静态 IP 字段 */
     cJSON* it;
