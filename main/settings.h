@@ -48,7 +48,6 @@ typedef struct {
     uint8_t custom1;
     uint8_t custom2;
     uint8_t custom3;
-    uint8_t freq_dir;
 
     uint8_t cfg_version;
 } settings_t;

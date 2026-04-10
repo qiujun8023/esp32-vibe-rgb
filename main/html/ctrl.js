@@ -70,7 +70,6 @@ const App = {
     custom1: 128,
     custom2: 128,
     custom3: 128,
-    freq_dir: 0,
 
     // 音频
     agc_mode: 1,
@@ -219,9 +218,7 @@ function initControls() {
     btn.addEventListener('click', () => {
       const val = parseInt(btn.dataset.value);
 
-      if (btn.id.startsWith('dir')) {
-        App.state.freq_dir = val;
-      } else if (btn.id.startsWith('agc')) {
+      if (btn.id.startsWith('agc')) {
         App.state.agc_mode = val;
       }
 
@@ -338,11 +335,6 @@ function syncUI() {
   // 调色板按钮
   document.querySelectorAll('[data-palette]').forEach(btn => {
     btn.classList.toggle('active', parseInt(btn.dataset.palette) === s.palette);
-  });
-
-  // 方向按钮
-  document.querySelectorAll('[id^="dir"]').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.value) === s.freq_dir);
   });
 
   // AGC 按钮

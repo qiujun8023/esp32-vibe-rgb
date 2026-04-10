@@ -48,16 +48,12 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
             } else {
                 r = g = bv = 0;
             }
-            if (s->freq_dir == 0) {
-                led_set_pixel(b, y, r, g, bv);
-            } else {
-                led_set_pixel(y, b, r, g, bv);
-            }
+            led_set_pixel(b, y, r, g, bv);
         }
     }
 
     /* 镜像显示 */
-    if (mirror && s->freq_dir == 0) {
+    if (mirror) {
         for (int b = 0; b < w / 2; b++) {
             for (int y = 0; y < h; y++) {
                 uint8_t r, g, bl;
@@ -99,11 +95,7 @@ void fx_2dgeq(const mic_data_t* d, const settings_t* s) {
             } else {
                 r = g = bv = 0;
             }
-            if (s->freq_dir == 0) {
-                led_set_pixel(x, y, r, g, bv);
-            } else {
-                led_set_pixel(y, x, r, g, bv);
-            }
+            led_set_pixel(x, y, r, g, bv);
         }
     }
     s_st.frame++;

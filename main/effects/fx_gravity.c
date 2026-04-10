@@ -85,11 +85,7 @@ void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
             uint8_t r  = (y < py) ? c.r : 0;
             uint8_t g  = (y < py) ? c.g : 0;
             uint8_t bv = (y < py) ? c.b : 0;
-            if (s->freq_dir == 0) {
-                led_set_pixel(x, y, r, g, bv);
-            } else {
-                led_set_pixel(y, x, r, g, bv);
-            }
+            led_set_pixel(x, y, r, g, bv);
         }
     }
 }

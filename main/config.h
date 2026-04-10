@@ -33,7 +33,6 @@
 #define DEF_CUSTOM1   128
 #define DEF_CUSTOM2   128
 #define DEF_CUSTOM3   128
-#define DEF_FREQ_DIR  0
 
 /* 网络配置 */
 #define WIFI_AP_SSID        "ESP32-Vibe-RGB"

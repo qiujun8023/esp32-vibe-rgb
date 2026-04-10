@@ -53,22 +53,12 @@ const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
  * @brief 绘制频谱柱
  */
 void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
-    int w = W, h = H;
-    if (s->freq_dir == 0) {
-        for (int i = 0; i < h; i++) {
-            if (i < height) {
-                led_set_pixel(band, i, c.r, c.g, c.b);
-            } else {
-                led_set_pixel(band, i, 0, 0, 0);
-            }
-        }
-    } else {
-        for (int i = 0; i < w; i++) {
-            if (i < height) {
-                led_set_pixel(i, band, c.r, c.g, c.b);
-            } else {
-                led_set_pixel(i, band, 0, 0, 0);
-            }
+    int h = H;
+    for (int i = 0; i < h; i++) {
+        if (i < height) {
+            led_set_pixel(band, i, c.r, c.g, c.b);
+        } else {
+            led_set_pixel(band, i, 0, 0, 0);
         }
     }
 }

@@ -54,7 +54,6 @@ char* settings_to_json(const settings_t* s) {
     cJSON_AddNumberToObject(root, "custom1", s->custom1);
     cJSON_AddNumberToObject(root, "custom2", s->custom2);
     cJSON_AddNumberToObject(root, "custom3", s->custom3);
-    cJSON_AddNumberToObject(root, "freq_dir", s->freq_dir);
 
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -125,7 +124,6 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     GET_INT("custom1", custom1);
     GET_INT("custom2", custom2);
     GET_INT("custom3", custom3);
-    GET_INT("freq_dir", freq_dir);
 
     /* 静态 IP 字段 */
     cJSON* it;

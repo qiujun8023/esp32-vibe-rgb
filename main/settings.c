@@ -58,7 +58,6 @@ static void settings_set_defaults(void) {
     s.custom1        = DEF_CUSTOM1;
     s.custom2        = DEF_CUSTOM2;
     s.custom3        = DEF_CUSTOM3;
-    s.freq_dir       = DEF_FREQ_DIR;
     s.cfg_version    = SETTINGS_VERSION;
 }
 
