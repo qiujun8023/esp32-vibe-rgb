@@ -1,7 +1,8 @@
 /**
  * @file wifi_prov.c
- * @brief WiFi AP配网模式：Captive Portal + DNS劫持
+ * @brief WiFi AP 配网模式：Captive Portal + DNS 劫持
  */
+
 #include "wifi_prov.h"
 
 #include <cJSON.h>
@@ -30,11 +31,11 @@ static EventGroupHandle_t s_evt;
 
 extern const char     html_prov_html_start[] asm("_binary_prov_html_start");
 extern const char     html_style_css_start[] asm("_binary_style_css_start");
-extern const unsigned prov_html_length       asm("prov_html_length");
-extern const unsigned style_css_length       asm("style_css_length");
+extern const unsigned prov_html_length asm("prov_html_length");
+extern const unsigned style_css_length asm("style_css_length");
 
 /**
- * @brief URL解码
+ * @brief URL 解码
  */
 static void url_decode(char* dst, const char* src, size_t maxlen) {
     size_t j = 0;
@@ -52,11 +53,17 @@ static void url_decode(char* dst, const char* src, size_t maxlen) {
     dst[j] = '\0';
 }
 
+/**
+ * @brief 从表单 body 提取字段
+ */
 static void extract_field(const char* body, const char* key, char* out, size_t outlen) {
     char search[32];
     snprintf(search, sizeof(search), "%s=", key);
     const char* p = strstr(body, search);
-    if (!p) { out[0] = '\0'; return; }
+    if (!p) {
+        out[0] = '\0';
+        return;
+    }
     p += strlen(search);
     const char* end = strchr(p, '&');
     size_t      len = end ? (size_t)(end - p) : strlen(p);
@@ -68,7 +75,7 @@ static void extract_field(const char* body, const char* key, char* out, size_t o
 }
 
 /**
- * @brief 扫描WiFi热点
+ * @brief 扫描 WiFi 热点
  */
 static esp_err_t handle_scan(httpd_req_t* req) {
     esp_wifi_scan_start(NULL, true);
@@ -113,14 +120,14 @@ static esp_err_t handle_prov(httpd_req_t* req) {
     char ip_mode_s[4] = {0}, ip_s[20] = {0}, mask_s[20] = {0}, gw_s[20] = {0};
     char dns1_s[20] = {0}, dns2_s[20] = {0};
 
-    extract_field(body, "ssid",    ssid,      sizeof(ssid));
-    extract_field(body, "pass",    pass,      sizeof(pass));
+    extract_field(body, "ssid", ssid, sizeof(ssid));
+    extract_field(body, "pass", pass, sizeof(pass));
     extract_field(body, "ip_mode", ip_mode_s, sizeof(ip_mode_s));
-    extract_field(body, "ip",      ip_s,      sizeof(ip_s));
-    extract_field(body, "mask",    mask_s,    sizeof(mask_s));
-    extract_field(body, "gw",      gw_s,      sizeof(gw_s));
-    extract_field(body, "dns1",    dns1_s,    sizeof(dns1_s));
-    extract_field(body, "dns2",    dns2_s,    sizeof(dns2_s));
+    extract_field(body, "ip", ip_s, sizeof(ip_s));
+    extract_field(body, "mask", mask_s, sizeof(mask_s));
+    extract_field(body, "gw", gw_s, sizeof(gw_s));
+    extract_field(body, "dns1", dns1_s, sizeof(dns1_s));
+    extract_field(body, "dns2", dns2_s, sizeof(dns2_s));
 
     if (strlen(ssid) == 0) {
         httpd_resp_set_type(req, "application/json");
@@ -152,7 +159,7 @@ static esp_err_t handle_prov(httpd_req_t* req) {
 }
 
 /**
- * @brief 返回CSS样式
+ * @brief 返回 CSS 样式
  */
 static esp_err_t handle_css(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/css");
@@ -170,7 +177,7 @@ static esp_err_t handle_root(httpd_req_t* req) {
 }
 
 /**
- * @brief 通用重定向处理
+ * @brief 通用重定向处理（Captive Portal）
  */
 static esp_err_t handle_catch(httpd_req_t* req) {
     httpd_resp_set_status(req, "302 Found");
@@ -180,7 +187,9 @@ static esp_err_t handle_catch(httpd_req_t* req) {
 }
 
 /**
- * @brief DNS劫持任务（Captive Portal）
+ * @brief DNS 劫持任务
+ *
+ * 将所有 DNS 查询解析到 AP 地址 10.10.10.10
  */
 static void dns_task(void* arg) {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -189,6 +198,7 @@ static void dns_task(void* arg) {
         vTaskDelete(NULL);
         return;
     }
+
     struct sockaddr_in addr = {
         .sin_family      = AF_INET,
         .sin_port        = htons(53),
@@ -211,30 +221,39 @@ static void dns_task(void* arg) {
 
         uint8_t resp[512];
         memcpy(resp, buf, n);
-        resp[2] = 0x81; resp[3] = 0x80;
-        resp[6] = 0x00; resp[7] = 0x01;
 
-        int pos      = n;
-        resp[pos++]  = 0xC0; resp[pos++] = 0x0C;
-        resp[pos++]  = 0x00; resp[pos++] = 0x01;
-        resp[pos++]  = 0x00; resp[pos++] = 0x01;
-        resp[pos++]  = 0x00; resp[pos++] = 0x00;
-        resp[pos++]  = 0x00; resp[pos++] = 60;
-        resp[pos++]  = 0x00; resp[pos++] = 0x04;
-        resp[pos++]  = 10;   resp[pos++] = 10;
-        resp[pos++]  = 10;   resp[pos++] = 10;
+        /* 设置响应标志 */
+        resp[2] = 0x81;
+        resp[3] = 0x80;
+        resp[6] = 0x00;
+        resp[7] = 0x01;
+
+        int pos = n;
+        /* 添加 A 记录回答 */
+        resp[pos++] = 0xC0;
+        resp[pos++] = 0x0C; /* 指向查询名 */
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x01; /* A 记录 */
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x01; /* IN 类 */
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x00;
+        resp[pos++] = 60; /* TTL */
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x04; /* IPv4 长度 */
+        resp[pos++] = 10;
+        resp[pos++] = 10;
+        resp[pos++] = 10;
+        resp[pos++] = 10; /* IP 地址 */
 
         sendto(sock, resp, pos, 0, (struct sockaddr*)&cli, clen);
     }
 }
 
-/**
- * @brief 启动配网AP模式
- */
 void wifi_prov_start_ap(void) {
     s_evt = xEventGroupCreate();
 
-    // 注意：esp_netif_init 和 esp_event_loop_create_default 已由 net_init() 调用
     esp_netif_t* ap_if = esp_netif_create_default_wifi_ap();
     esp_netif_create_default_wifi_sta();
 
@@ -251,6 +270,7 @@ void wifi_prov_start_ap(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    /* 配置 AP IP */
     ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_if));
     esp_netif_ip_info_t ip = {
         .ip      = {.addr = ESP_IP4TOADDR(10, 10, 10, 10)},
@@ -268,16 +288,18 @@ void wifi_prov_start_ap(void) {
 
     ESP_LOGI(TAG, "provisioning ap started, ssid: %s, ip: 10.10.10.10", WIFI_AP_SSID);
 
+    /* 启动 HTTP 服务器 */
     httpd_config_t hcfg   = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
     hcfg.uri_match_fn     = httpd_uri_match_wildcard;
     httpd_handle_t srv    = NULL;
+
     if (httpd_start(&srv, &hcfg) == ESP_OK) {
-        httpd_uri_t u_root  = {.uri = "/",          .method = HTTP_GET,  .handler = handle_root};
-        httpd_uri_t u_css   = {.uri = "/style.css", .method = HTTP_GET,  .handler = handle_css};
-        httpd_uri_t u_scan  = {.uri = "/api/scan",  .method = HTTP_GET,  .handler = handle_scan};
-        httpd_uri_t u_prov  = {.uri = "/api/prov",  .method = HTTP_POST, .handler = handle_prov};
-        httpd_uri_t u_catch = {.uri = "/*",         .method = HTTP_GET,  .handler = handle_catch};
+        httpd_uri_t u_root  = {.uri = "/", .method = HTTP_GET, .handler = handle_root};
+        httpd_uri_t u_css   = {.uri = "/style.css", .method = HTTP_GET, .handler = handle_css};
+        httpd_uri_t u_scan  = {.uri = "/api/scan", .method = HTTP_GET, .handler = handle_scan};
+        httpd_uri_t u_prov  = {.uri = "/api/prov", .method = HTTP_POST, .handler = handle_prov};
+        httpd_uri_t u_catch = {.uri = "/*", .method = HTTP_GET, .handler = handle_catch};
 
         httpd_register_uri_handler(srv, &u_root);
         httpd_register_uri_handler(srv, &u_css);
@@ -286,8 +308,9 @@ void wifi_prov_start_ap(void) {
         httpd_register_uri_handler(srv, &u_catch);
     }
 
+    /* 启动 DNS 劫持任务 */
     if (xTaskCreate(dns_task, "dns", 3072, NULL, 4, NULL) != pdPASS) {
-        ESP_LOGW(TAG, "dns task creation failed, captive portal redirect will not work");
+        ESP_LOGW(TAG, "dns task creation failed");
     }
 
     ESP_LOGI(TAG, "waiting for provisioning completion");

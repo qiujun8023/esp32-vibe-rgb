@@ -634,8 +634,7 @@ body {
 
 #led-preview {
   display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  image-rendering: auto;
 }
 
 /* === 操作按钮 === */

@@ -499,19 +499,26 @@ function renderMatrix(hex) {
   const cellSize = Math.max(8, Math.floor(maxSize / maxDim));
   const radius = Math.max(2, (cellSize - 4) / 2);
 
-  const canvasW = w * cellSize;
-  const canvasH = h * cellSize;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = w * cellSize;
+  const cssH = h * cellSize;
+  const canvasW = Math.floor(cssW * dpr);
+  const canvasH = Math.floor(cssH * dpr);
 
   if (App.matrixCanvas.width !== canvasW || App.matrixCanvas.height !== canvasH) {
     App.matrixCanvas.width = canvasW;
     App.matrixCanvas.height = canvasH;
+    App.matrixCanvas.style.width = `${cssW}px`;
+    App.matrixCanvas.style.height = `${cssH}px`;
   }
 
   const ctx = App.matrixCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
 
   // 清空背景
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.fillRect(0, 0, cssW, cssH);
 
   // 绘制圆形像素
   const count = Math.min(hex.length / 6, w * h);
@@ -560,19 +567,26 @@ function renderLedPreview() {
   const maxSize = Math.min(600, wrap.clientWidth || (window.innerWidth - 32));
   const cellSize = Math.max(20, Math.floor(maxSize / maxDim));
 
-  const canvasW = w * cellSize;
-  const canvasH = h * cellSize;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = w * cellSize;
+  const cssH = h * cellSize;
+  const canvasW = Math.floor(cssW * dpr);
+  const canvasH = Math.floor(cssH * dpr);
 
   if (App.previewCanvas.width !== canvasW || App.previewCanvas.height !== canvasH) {
     App.previewCanvas.width = canvasW;
     App.previewCanvas.height = canvasH;
+    App.previewCanvas.style.width = `${cssW}px`;
+    App.previewCanvas.style.height = `${cssH}px`;
   }
 
   const ctx = App.previewCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
 
   // 背景
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.fillRect(0, 0, cssW, cssH);
 
   const total = w * h;
   const points = [];
@@ -629,10 +643,13 @@ function renderLedPreview() {
 
     // 序号
     ctx.fillStyle = '#fff';
-    ctx.font = `bold ${Math.max(10, cellSize / 3)}px JetBrains Mono, monospace`;
+    // 强制指定一个稍微大一点的字号下限和通用的无衬线字体序列，有助于各个系统对齐一致
+    const fontSize = Math.max(10, cellSize / 3);
+    ctx.font = `bold ${fontSize}px "JetBrains Mono", monospace, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(i), p.x, p.y);
+    // 垂直微调字体，由于 middle 下数字通常会有约 7% 的视觉偏上，向下加上 fontSize 的 0.08 倍以对准圆心
+    ctx.fillText(String(i), p.x, p.y + fontSize * 0.08);
   }
 }
 

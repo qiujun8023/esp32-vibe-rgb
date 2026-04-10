@@ -1,6 +1,11 @@
+/**
+ * @file http_server.h
+ * @brief HTTP/WebSocket 服务器接口
+ */
+
 #pragma once
 
-// net/http_server.h
-// HTTP/WebSocket 服务器：路由注册、请求处理、业务命令分发
-
+/**
+ * @brief 启动 HTTP 服务器
+ */
 void http_server_start(void);

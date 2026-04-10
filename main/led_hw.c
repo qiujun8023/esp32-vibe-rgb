@@ -1,24 +1,26 @@
-// LED 硬件驱动层：RMT/WS2812 初始化、亮度缩放、刷新
-// 依赖 IDF led_strip 组件
-
-#include "led_priv.h"
+/**
+ * @file led_hw.c
+ * @brief LED 硬件驱动：RMT/WS2812 初始化、亮度缩放、物理刷新
+ */
 
 #include <esp_log.h>
 #include <led_strip.h>
 #include <string.h>
 
+#include "led_priv.h"
 #include "settings.h"
 
-static const char* TAG = "led";
+static const char* TAG = "led_hw";
 
-// ── 模块状态定义 ──────────────────────────────────────────────────────────────
 led_strip_handle_t s_strip = NULL;
 
+/**
+ * @brief 应用亮度缩放
+ */
 static inline uint8_t scale_brightness(uint8_t v) {
     return (uint8_t)((uint32_t)v * s_brightness / 255);
 }
 
-// ── 初始化 ────────────────────────────────────────────────────────────────────
 void led_init(const settings_t* st) {
     s_w          = st->led_w ? st->led_w : 8;
     s_h          = st->led_h ? st->led_h : 8;
@@ -58,7 +60,6 @@ void led_init(const settings_t* st) {
     ESP_LOGI(TAG, "led init ok, gpio: %d, size: %dx%d", st->led_gpio, s_w, s_h);
 }
 
-// ── 运行时更新设置 ────────────────────────────────────────────────────────────
 void led_apply_settings(const settings_t* st) {
     s_brightness = st->brightness;
     s_serpentine = st->led_serpentine;
@@ -76,35 +77,30 @@ void led_apply_settings(const settings_t* st) {
     ledmap_rebuild();
 }
 
-// ── 清屏 ──────────────────────────────────────────────────────────────────────
 void led_clear(void) {
     memset(s_fb, 0, sizeof(s_fb));
     if (s_strip) led_strip_clear(s_strip);
 }
 
-// ── 刷新输出（最后进行物理映射与亮度缩放） ────────────────────────────────────
 void led_flush(void) {
     if (!s_strip) return;
 
-    led_strip_clear(s_strip);
-
     int count = s_w * s_h;
+
+    /* 直接设置像素，不先清空，避免闪烁 */
     for (int y = 0; y < s_h; y++) {
         for (int x = 0; x < s_w; x++) {
             int phy_idx = s_lookup[y * s_w + x];
             if (phy_idx >= 0 && phy_idx < count) {
                 int log_base = (y * s_w + x) * 3;
-                led_strip_set_pixel(s_strip, phy_idx,
-                                    scale_brightness(s_fb[log_base]),
-                                    scale_brightness(s_fb[log_base + 1]),
-                                    scale_brightness(s_fb[log_base + 2]));
+                led_strip_set_pixel(s_strip, phy_idx, scale_brightness(s_fb[log_base]),
+                                    scale_brightness(s_fb[log_base + 1]), scale_brightness(s_fb[log_base + 2]));
             }
         }
     }
     led_strip_refresh(s_strip);
 }
 
-// ── 提供给Web测试布线的物理硬件后门 ──────────────────────────────────────
 void led_hw_test_pixel(int idx, uint8_t r, uint8_t g, uint8_t b) {
     if (!s_strip) return;
     led_strip_clear(s_strip);

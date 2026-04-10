@@ -2,6 +2,7 @@
  * @file main.c
  * @brief ESP32 Vibe RGB 主入口
  */
+
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -11,18 +12,18 @@
 #include "effects.h"
 #include "led.h"
 #include "mic.h"
-#include "settings.h"
-#include "net/net_init.h"
-#include "net/wifi_sta.h"
-#include "net/wifi_prov.h"
 #include "net/http_server.h"
+#include "net/net_init.h"
+#include "net/wifi_prov.h"
+#include "net/wifi_sta.h"
+#include "settings.h"
 
 static const char* TAG = "main";
 
 /**
- * @brief 灯效渲染任务（Core 0，约30fps）
+ * @brief 灯效渲染任务（Core 0，约 30 fps）
  *
- * 使用 settings_copy 快照避免持锁渲染，保证实时性。
+ * 使用 settings_copy 快照避免持锁渲染
  */
 static void effect_task(void* arg) {
     mic_data_t data;
@@ -77,9 +78,6 @@ static void prov_led_task(void* arg) {
     }
 }
 
-/**
- * @brief 应用入口
- */
 void app_main(void) {
     ESP_LOGI(TAG, "system starting");
 
@@ -118,8 +116,8 @@ void app_main(void) {
         ESP_LOGE(TAG, "wifi connection failed, clearing credentials");
         settings_lock();
         settings_t* s = settings_get();
-        s->ssid[0] = '\0';
-        s->pass[0] = '\0';
+        s->ssid[0]    = '\0';
+        s->pass[0]    = '\0';
         settings_unlock();
         settings_save();
         vTaskDelay(pdMS_TO_TICKS(500));

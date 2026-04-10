@@ -1,7 +1,8 @@
 /**
  * @file http_server.c
- * @brief HTTP/WebSocket服务器：静态文件、WS消息、业务命令
+ * @brief HTTP/WebSocket 服务器：静态文件、WS 消息、业务命令
  */
+
 #include "http_server.h"
 
 #include <cJSON.h>
@@ -15,18 +16,18 @@
 #include "effects.h"
 #include "led.h"
 #include "mic.h"
-#include "settings.h"
 #include "net/settings_json.h"
 #include "net/ws_push.h"
+#include "settings.h"
 
 static const char* TAG = "http_server";
 
 extern const char     html_ctrl_html_start[] asm("_binary_ctrl_html_start");
-extern const char     html_ctrl_js_start[]   asm("_binary_ctrl_js_start");
+extern const char     html_ctrl_js_start[] asm("_binary_ctrl_js_start");
 extern const char     html_style_css_start[] asm("_binary_style_css_start");
-extern const unsigned ctrl_html_length       asm("ctrl_html_length");
-extern const unsigned ctrl_js_length         asm("ctrl_js_length");
-extern const unsigned style_css_length       asm("style_css_length");
+extern const unsigned ctrl_html_length asm("ctrl_html_length");
+extern const unsigned ctrl_js_length asm("ctrl_js_length");
+extern const unsigned style_css_length asm("style_css_length");
 
 /**
  * @brief 返回控制页面
@@ -38,7 +39,7 @@ static esp_err_t handle_root(httpd_req_t* req) {
 }
 
 /**
- * @brief 返回CSS样式
+ * @brief 返回 CSS 样式
  */
 static esp_err_t handle_css(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/css");
@@ -47,7 +48,7 @@ static esp_err_t handle_css(httpd_req_t* req) {
 }
 
 /**
- * @brief 返回JS脚本
+ * @brief 返回 JS 脚本
  */
 static esp_err_t handle_js(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/javascript; charset=utf-8");
@@ -56,7 +57,7 @@ static esp_err_t handle_js(httpd_req_t* req) {
 }
 
 /**
- * @brief WebSocket处理
+ * @brief WebSocket 处理
  */
 static esp_err_t handle_ws(httpd_req_t* req) {
     if (req->method == HTTP_GET) {
@@ -74,14 +75,17 @@ static esp_err_t handle_ws(httpd_req_t* req) {
     }
 
     if (pkt.type == HTTPD_WS_TYPE_PONG) return ESP_OK;
+
     if (pkt.type == HTTPD_WS_TYPE_PING) {
         httpd_ws_frame_t pong = {.type = HTTPD_WS_TYPE_PONG, .payload = buf, .len = pkt.len};
         return httpd_ws_send_frame(req, &pong);
     }
+
     if (pkt.type == HTTPD_WS_TYPE_CLOSE || pkt.type == HTTPD_WS_TYPE_BINARY) return ESP_OK;
 
     buf[pkt.len] = '\0';
 
+    /* ping/pong 心跳 */
     if (pkt.len == 4 && strcmp((char*)buf, "ping") == 0) {
         httpd_ws_frame_t pong = {.type = HTTPD_WS_TYPE_TEXT, .payload = (uint8_t*)"pong", .len = 4};
         return httpd_ws_send_frame(req, &pong);
@@ -90,6 +94,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
     cJSON* root = cJSON_Parse((char*)buf);
     if (!root) return ESP_OK;
 
+    /* 获取配置 */
     if (cJSON_GetObjectItem(root, "get_cfg")) {
         settings_t snap;
         settings_copy(&snap);
@@ -107,6 +112,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
+    /* LED 测试 */
     if (cJSON_GetObjectItem(root, "test_led")) {
         effects_pause();
         int count = led_count();
@@ -120,12 +126,14 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
+    /* 保存配置 */
     if (cJSON_GetObjectItem(root, "save")) {
         settings_save();
         cJSON_Delete(root);
         return ESP_OK;
     }
 
+    /* 重启设备 */
     if (cJSON_GetObjectItem(root, "reboot")) {
         cJSON_Delete(root);
         ESP_LOGW(TAG, "reboot requested via ws");
@@ -134,6 +142,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
+    /* 恢复出厂设置 */
     if (cJSON_GetObjectItem(root, "factory")) {
         cJSON_Delete(root);
         ESP_LOGW(TAG, "factory reset requested via ws");
@@ -141,6 +150,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
         return ESP_OK;
     }
 
+    /* 应用配置 */
     bool restart = false;
     settings_lock();
     settings_t* s = settings_get();
@@ -197,7 +207,7 @@ static esp_err_t handle_save(httpd_req_t* req) {
     effects_set_mode(snap.effect);
 
     cJSON* r = cJSON_CreateObject();
-    cJSON_AddBoolToObject(r, "ok",               true);
+    cJSON_AddBoolToObject(r, "ok", true);
     cJSON_AddBoolToObject(r, "restart_required", restart);
     char* json = cJSON_PrintUnformatted(r);
     cJSON_Delete(r);
@@ -237,10 +247,10 @@ static esp_err_t handle_factory_reset(httpd_req_t* req) {
 }
 
 /**
- * @brief 注册URI处理器
+ * @brief 注册 URI 处理器
  */
-static void register_uri(httpd_handle_t srv, const char* uri, httpd_method_t method,
-                         esp_err_t (*handler)(httpd_req_t*), bool ws) {
+static void register_uri(httpd_handle_t srv, const char* uri, httpd_method_t method, esp_err_t (*handler)(httpd_req_t*),
+                         bool ws) {
     httpd_uri_t u = {
         .uri                      = uri,
         .method                   = method,
@@ -253,9 +263,6 @@ static void register_uri(httpd_handle_t srv, const char* uri, httpd_method_t met
     httpd_register_uri_handler(srv, &u);
 }
 
-/**
- * @brief 启动HTTP服务器
- */
 void http_server_start(void) {
     httpd_config_t hcfg   = HTTPD_DEFAULT_CONFIG();
     hcfg.max_uri_handlers = 16;
@@ -268,13 +275,13 @@ void http_server_start(void) {
         return;
     }
 
-    register_uri(srv, "/",             HTTP_GET,  handle_root,          false);
-    register_uri(srv, "/style.css",    HTTP_GET,  handle_css,           false);
-    register_uri(srv, "/ctrl.js",      HTTP_GET,  handle_js,            false);
-    register_uri(srv, "/ws",           HTTP_GET,  handle_ws,            true);
-    register_uri(srv, "/api/settings", HTTP_POST, handle_save,          false);
-    register_uri(srv, "/api/reboot",   HTTP_POST, handle_reboot,        false);
-    register_uri(srv, "/api/factory",  HTTP_POST, handle_factory_reset, false);
+    register_uri(srv, "/", HTTP_GET, handle_root, false);
+    register_uri(srv, "/style.css", HTTP_GET, handle_css, false);
+    register_uri(srv, "/ctrl.js", HTTP_GET, handle_js, false);
+    register_uri(srv, "/ws", HTTP_GET, handle_ws, true);
+    register_uri(srv, "/api/settings", HTTP_POST, handle_save, false);
+    register_uri(srv, "/api/reboot", HTTP_POST, handle_reboot, false);
+    register_uri(srv, "/api/factory", HTTP_POST, handle_factory_reset, false);
 
     ws_push_start(srv);
     ESP_LOGI(TAG, "http server started");

@@ -1,7 +1,8 @@
 /**
  * @file ws_push.c
- * @brief WebSocket LED帧推流任务：20fps广播像素和音频数据
+ * @brief WebSocket LED 帧推流：20 fps 广播像素和音频数据
  */
+
 #include "ws_push.h"
 
 #include <esp_log.h>
@@ -19,8 +20,8 @@
 
 static const char* TAG = "ws_push";
 
-#define MAX_HTTP_SOCKETS 16   // 覆盖 httpd 所有连接（HTTP + WS），需 >= max_open_sockets
-#define MAX_WS_CLIENTS   4    // 同时推流的 WS 客户端上限
+#define MAX_HTTP_SOCKETS 16
+#define MAX_WS_CLIENTS   4
 
 static httpd_handle_t s_server_ref = NULL;
 
@@ -29,9 +30,9 @@ static httpd_handle_t s_server_ref = NULL;
  */
 static void push_task(void* arg) {
     TickType_t last           = xTaskGetTickCount();
-    int        fps_cnt = 0, fps_val = 0;
     TickType_t fps_ts         = xTaskGetTickCount();
     TickType_t last_ping_tick = xTaskGetTickCount();
+    int        fps_cnt = 0, fps_val = 0;
 
     uint8_t* fb = malloc(LED_MAX_COUNT * 3);
     if (!fb) {
@@ -39,6 +40,7 @@ static void push_task(void* arg) {
         vTaskDelete(NULL);
         return;
     }
+
     char* msg = malloc(LED_MAX_COUNT * 6 + 1024);
     if (!msg) {
         ESP_LOGE(TAG, "failed to allocate ws msg buffer");
@@ -52,12 +54,12 @@ static void push_task(void* arg) {
 
         if (!s_server_ref) continue;
 
-        // 获取所有连接（HTTP + WS），buffer 必须足够大，否则返回 ESP_ERR_INVALID_SIZE
+        /* 获取所有连接 */
         size_t fds_count = MAX_HTTP_SOCKETS;
         int    client_fds[MAX_HTTP_SOCKETS];
         if (httpd_get_client_list(s_server_ref, &fds_count, client_fds) != ESP_OK) continue;
 
-        // 从全量连接中筛选 WS 客户端
+        /* 筛选 WS 客户端 */
         int ws_fds[MAX_WS_CLIENTS];
         int ws_count = 0;
         for (size_t i = 0; i < fds_count && ws_count < MAX_WS_CLIENTS; i++) {
@@ -67,29 +69,26 @@ static void push_task(void* arg) {
         }
         if (ws_count == 0) continue;
 
-        // Ping 心跳（每 10s 一次）
-        if (xTaskGetTickCount() - last_ping_tick >= pdMS_TO_TICKS(10000)) {
-            uint8_t          ping_payload[1] = {0};
-            httpd_ws_frame_t ping = {
-                .type    = HTTPD_WS_TYPE_PING,
-                .payload = ping_payload,
-                .len     = 0,
-            };
+        TickType_t now = xTaskGetTickCount();
+
+        /* Ping 心跳（每 10 秒） */
+        if (now - last_ping_tick >= pdMS_TO_TICKS(10000)) {
+            httpd_ws_frame_t ping = {.type = HTTPD_WS_TYPE_PING, .len = 0};
             for (int i = 0; i < ws_count; i++) {
                 httpd_ws_send_frame_async(s_server_ref, ws_fds[i], &ping);
             }
-            last_ping_tick = xTaskGetTickCount();
+            last_ping_tick = now;
         }
 
-        // 采集数据
+        /* 采集数据 */
         mic_data_t d;
         mic_get_data(&d);
 
         fps_cnt++;
-        if (xTaskGetTickCount() - fps_ts >= pdMS_TO_TICKS(1000)) {
+        if (now - fps_ts >= pdMS_TO_TICKS(1000)) {
             fps_val = fps_cnt;
             fps_cnt = 0;
-            fps_ts  = xTaskGetTickCount();
+            fps_ts  = now;
         }
 
         int fblen = 0;
@@ -100,24 +99,23 @@ static void push_task(void* arg) {
         int pos     = 0;
         int max_len = LED_MAX_COUNT * 6 + 1024;
 
-        // 拼装 JSON（像素用 hex 字符串编码）
+        /* 拼装 JSON */
         static const char HEX_CHARS[] = "0123456789abcdef";
         pos += snprintf(msg + pos, max_len - pos, "{\"pixels\":\"");
         for (int i = 0; i < fblen && pos + 2 < max_len; i++) {
             msg[pos++] = HEX_CHARS[fb[i] >> 4];
             msg[pos++] = HEX_CHARS[fb[i] & 0xf];
         }
+
         if (pos + 512 < max_len) {
             pos += snprintf(msg + pos, max_len - pos,
                             "\",\"fps\":%d,\"volume\":%.2f,\"beat\":%.2f,"
                             "\"heap\":%lu,\"rssi\":%d,\"uptime\":%lu,\"bands\":[",
-                            fps_val, d.volume, d.beat,
-                            (unsigned long)esp_get_free_heap_size(), rssi,
+                            fps_val, d.volume, d.beat, (unsigned long)esp_get_free_heap_size(), rssi,
                             (unsigned long)(esp_timer_get_time() / 1000000));
             for (int b = 0; b < MIC_BANDS; b++) {
                 if (pos + 10 >= max_len) break;
-                pos += snprintf(msg + pos, max_len - pos, "%.2f%s",
-                                d.bands[b], (b < MIC_BANDS - 1) ? "," : "");
+                pos += snprintf(msg + pos, max_len - pos, "%.2f%s", d.bands[b], (b < MIC_BANDS - 1) ? "," : "");
             }
             pos += snprintf(msg + pos, max_len - pos, "]}");
         }
@@ -131,9 +129,8 @@ static void push_task(void* arg) {
         for (int i = 0; i < ws_count; i++) {
             esp_err_t err = httpd_ws_send_frame_async(s_server_ref, ws_fds[i], &pkt);
             if (err != ESP_OK) {
-                if (err == ESP_ERR_INVALID_STATE || err == ESP_ERR_NOT_FOUND ||
-                    err == ESP_ERR_HTTPD_RESP_HDR) {
-                    ESP_LOGW(TAG, "ws fd=%d disconnected, closing", ws_fds[i]);
+                if (err == ESP_ERR_INVALID_STATE || err == ESP_ERR_NOT_FOUND || err == ESP_ERR_HTTPD_RESP_HDR) {
+                    ESP_LOGW(TAG, "ws fd=%d disconnected", ws_fds[i]);
                     httpd_sess_trigger_close(s_server_ref, ws_fds[i]);
                 }
             }
@@ -141,9 +138,6 @@ static void push_task(void* arg) {
     }
 }
 
-/**
- * @brief 启动推流任务
- */
 void ws_push_start(httpd_handle_t server) {
     s_server_ref = server;
     xTaskCreate(push_task, "ws_push", 6144, NULL, 4, NULL);

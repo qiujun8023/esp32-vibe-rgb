@@ -1,6 +1,7 @@
-// net/wifi_sta.c
-// WiFi STA 连接管理：连接、重连（最多5次）、等待结果
-// 修复：连接失败时仅清除 SSID/密码，保留 LED/音效配置，不做全量出厂重置
+/**
+ * @file wifi_sta.c
+ * @brief WiFi STA 连接管理：连接、重连、等待结果、RSSI 查询
+ */
 
 #include "wifi_sta.h"
 
@@ -24,6 +25,9 @@ static const char* TAG = "wifi_sta";
 static EventGroupHandle_t s_wifi_evt;
 static int                s_retry = 0;
 
+/**
+ * @brief WiFi 事件处理
+ */
 static void wifi_handler(void* arg, esp_event_base_t b, int32_t id, void* data) {
     if (b == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         if (s_retry++ < 5) {
@@ -50,16 +54,14 @@ void wifi_sta_init(const settings_t* s) {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_handler, NULL, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_handler, NULL, NULL));
 
     wifi_config_t sta_cfg = {0};
-    strlcpy((char*)sta_cfg.sta.ssid,     s->ssid, sizeof(sta_cfg.sta.ssid));
-    strlcpy((char*)sta_cfg.sta.password, s->pass,  sizeof(sta_cfg.sta.password));
+    strlcpy((char*)sta_cfg.sta.ssid, s->ssid, sizeof(sta_cfg.sta.ssid));
+    strlcpy((char*)sta_cfg.sta.password, s->pass, sizeof(sta_cfg.sta.password));
 
-    // 静态 IP 配置
+    /* 静态 IP 配置 */
     if (s->ip_mode == 1 && s->s_ip) {
         esp_netif_dhcpc_stop(sta_if);
         esp_netif_ip_info_t info = {
@@ -87,11 +89,8 @@ void wifi_sta_init(const settings_t* s) {
 }
 
 bool wifi_sta_wait_connected(uint32_t timeout_ms) {
-    EventBits_t bits = xEventGroupWaitBits(
-        s_wifi_evt,
-        WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-        false, false,
-        pdMS_TO_TICKS(timeout_ms));
+    EventBits_t bits =
+        xEventGroupWaitBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, false, false, pdMS_TO_TICKS(timeout_ms));
     return (bits & WIFI_CONNECTED_BIT) != 0;
 }
 
