@@ -1,0 +1,24 @@
+menu "Vibe-RGB Configuration"
+
+    config ESP_WIFI_SSID
+        string "Provisioning AP SSID"
+        default "ESP32-Vibe-RGB"
+        help
+            SSID used by the temporary SoftAP during first-time WiFi provisioning.
+
+    config ESP_MAX_STA_CONN
+        int "Maximal STA connections"
+        default 4
+        range 1 10
+        help
+            Max number of stations that can connect to the provisioning AP concurrently.
+
+    config ESP_STA_TIMEOUT_MS
+        int "STA connect timeout (ms)"
+        default 15000
+        range 3000 60000
+        help
+            Timeout waiting for STA to associate with the stored AP before falling
+            back to clearing credentials and rebooting into provisioning mode.
+
+endmenu

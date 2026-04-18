@@ -1,8 +1,3 @@
-/**
- * @file mic.c
- * @brief I2S 麦克风采集、FFT 频谱分析、节拍检测、自动增益控制
- */
-
 #include "mic.h"
 
 #include <driver/i2s_std.h>
@@ -19,10 +14,10 @@ static const char* TAG = "mic";
 
 #define SAMPLE_RATE 16000
 
-/* 频带边界（FFT bin 索引），覆盖约 60 Hz - 4 kHz */
+/* FFT bin 索引,对数分布覆盖约 60 Hz - 4 kHz */
 static const int BAND_BINS[MIC_BANDS + 1] = {2, 4, 8, 16, 32, 64, 128, 192, 256};
 
-/* 粉红噪声补偿系数 */
+/* 粉红噪声补偿:麦克风本底 1/f 特性下高频权重偏低,按频带乘此系数拉平 */
 static const float PINK_NOISE_COMP[MIC_BANDS] = {1.85f, 1.86f, 1.88f, 1.94f, 2.08f, 2.38f, 3.15f, 5.12f};
 
 /* Blackman-Harris 窗函数系数 */
@@ -31,20 +26,19 @@ static const float PINK_NOISE_COMP[MIC_BANDS] = {1.85f, 1.86f, 1.88f, 1.94f, 2.0
 #define BH_A2 0.14128f
 #define BH_A3 0.01168f
 
+/* 节拍检测历史长度,~1 秒 @ 43 fps */
 #define BEAT_HIST 43
 
-static int32_t           s_raw[MIC_FFT_SIZE];
-static float             s_fft[MIC_FFT_SIZE * 2];
-static float             s_wind[MIC_FFT_SIZE];
+/* esp-dsp fft2r 要求实虚交织缓冲 16 字节对齐 */
+static int32_t s_raw[MIC_FFT_SIZE];
+static float   s_fft[MIC_FFT_SIZE * 2] __attribute__((aligned(16)));
+static float   s_wind[MIC_FFT_SIZE] __attribute__((aligned(16)));
 static float             s_beat_energy[BEAT_HIST];
 static int               s_beat_pos;
 static mic_data_t        s_data;
 static SemaphoreHandle_t s_mutex;
 static i2s_chan_handle_t s_rx_chan;
 
-/**
- * @brief 滤波器状态：噪声底、峰值保持、平滑值、AGC
- */
 typedef struct {
     float band_noise[MIC_BANDS];
     float band_peak[MIC_BANDS];
@@ -52,8 +46,8 @@ typedef struct {
     float smooth_vol;
     float peak_decay;
     float vol_noise;
-    float agc_level;    /* AGC 自适应增益基准 */
-    float agc_peak_avg; /* AGC 峰值平均值 */
+    float agc_level;
+    float agc_peak_avg;
     bool  need_reset;
 } mic_filter_t;
 
@@ -63,9 +57,6 @@ static uint8_t      s_smooth   = 100;
 static uint8_t      s_agc_mode = 1;
 static float        s_gain     = 15.0f;
 
-/**
- * @brief 重置滤波器状态
- */
 static void filter_reset(mic_filter_t* f) {
     for (int i = 0; i < MIC_BANDS; i++) {
         f->band_noise[i]   = 1e-4f;
@@ -80,9 +71,6 @@ static void filter_reset(mic_filter_t* f) {
     f->need_reset   = false;
 }
 
-/**
- * @brief 生成 Blackman-Harris 窗函数
- */
 static void generate_blackman_harris_window(float* window, int size) {
     float inv = 1.0f / (size - 1);
     for (int i = 0; i < size; i++) {
@@ -92,9 +80,7 @@ static void generate_blackman_harris_window(float* window, int size) {
     }
 }
 
-/**
- * @brief FFT 主峰检测（抛物线插值）
- */
+/* 抛物线插值定位主峰,精度优于 bin 宽度 */
 static void find_major_peak(float* fft_data, int fft_size, int sample_rate, float* out_freq, float* out_mag) {
     float max_mag_sq = 0.0f;
     int   max_bin    = 1;
@@ -130,9 +116,7 @@ static void find_major_peak(float* fft_data, int fft_size, int sample_rate, floa
     *out_mag  = max_mag;
 }
 
-/**
- * @brief 节拍检测（基于能量方差）
- */
+/* 当前能量相对历史均值的突跳强度映射到 [0,1] */
 static float beat_detect(float energy) {
     float avg = 0;
     for (int i = 0; i < BEAT_HIST; i++) avg += s_beat_energy[i];
@@ -146,42 +130,30 @@ static float beat_detect(float energy) {
     return (beat < 0) ? 0 : (beat > 1 ? 1 : beat);
 }
 
-/**
- * @brief AGC 增益计算
- *
- * @param peak 当前帧峰值幅度
- * @return 应用 AGC 后的增益系数
- */
 static float compute_agc_gain(float peak) {
     if (s_agc_mode == 0) {
-        /* 手动增益模式 */
         return s_gain;
     }
 
-    /* AGC 目标：将峰值稳定在约 0.3 - 0.5 范围 */
+    /* 目标:把峰值稳定在 0.3-0.5 区间 */
     float target    = 0.4f;
-    float agc_speed = (s_agc_mode == 2) ? 0.02f : 0.01f; /* 强力 AGC 更快 */
+    /* mode 2 为强力 AGC,调节更快 */
+    float agc_speed = (s_agc_mode == 2) ? 0.02f : 0.01f;
 
-    /* 计算峰值平均值（慢速） */
     s_filter.agc_peak_avg = s_filter.agc_peak_avg * 0.95f + peak * 0.05f;
 
-    /* 根据峰值平均值调整增益基准 */
     if (s_filter.agc_peak_avg > target * 1.5f) {
-        /* 信号过强，降低增益 */
         s_filter.agc_level -= agc_speed;
         if (s_filter.agc_level < 1.0f) s_filter.agc_level = 1.0f;
     } else if (s_filter.agc_peak_avg < target * 0.5f) {
-        /* 信号过弱，提高增益 */
         s_filter.agc_level += agc_speed * 0.5f;
+        /* 上限 2*s_gain 防止安静场景把底噪放大成毛刺 */
         if (s_filter.agc_level > s_gain * 2.0f) s_filter.agc_level = s_gain * 2.0f;
     }
 
     return s_filter.agc_level;
 }
 
-/**
- * @brief 麦克风采集与处理任务
- */
 static void mic_task(void* arg) {
     filter_reset(&s_filter);
 
@@ -197,7 +169,7 @@ static void mic_task(void* arg) {
             continue;
         }
 
-        /* 加窗并计算原始能量 */
+        /* I2S 返回 32-bit,有效数据在高 24 位,>>8 后按 24-bit 定点归一化 */
         float raw_energy = 0;
         float peak_val   = 0;
         for (int i = 0; i < MIC_FFT_SIZE; i++) {
@@ -210,7 +182,6 @@ static void mic_task(void* arg) {
         }
         raw_energy /= MIC_FFT_SIZE;
 
-        /* 应用增益 */
         float gain = compute_agc_gain(peak_val);
         for (int i = 0; i < MIC_FFT_SIZE; i++) {
             s_fft[2 * i] *= gain;
@@ -242,14 +213,14 @@ static void mic_task(void* arg) {
                 max_idx = b;
             }
 
-            /* 自适应噪声底 */
+            /* 非对称追踪:值低于底噪时快速下跟,高于时极慢上爬,避免长信号被误认为背景 */
             float noise_alpha      = (raw_val < s_filter.band_noise[b]) ? 0.05f : 0.0001f;
             s_filter.band_noise[b] = s_filter.band_noise[b] * (1.0f - noise_alpha) + raw_val * noise_alpha;
 
             float signal = raw_val - s_filter.band_noise[b];
             if (signal < 0.0f) signal = 0.0f;
 
-            /* 峰值保持 */
+            /* 峰值保持:给归一化提供稳定分母,衰减太慢会钝化响应,太快会抖 */
             float peak_min = s_filter.band_noise[b] * 4.0f;
             if (signal > s_filter.band_peak[b]) {
                 s_filter.band_peak[b] = signal;
@@ -261,13 +232,12 @@ static void mic_task(void* arg) {
             float val = (s_filter.band_peak[b] > 1e-8f) ? (signal / s_filter.band_peak[b]) : 0.0f;
             if (val > 1.0f) val = 1.0f;
 
-            /* 平滑处理 */
+            /* 上升快(0.6) / 下降按用户 smooth 参数调,让峰值跟手、尾音绵软 */
             float alpha              = (val > s_filter.smooth_bands[b]) ? 0.6f : (local_smooth / 255.0f * 0.3f + 0.05f);
             s_filter.smooth_bands[b] = s_filter.smooth_bands[b] * (1.0f - alpha) + val * alpha;
             current_bands[b]         = s_filter.smooth_bands[b];
         }
 
-        /* 音量计算 */
         float vol_noise_alpha = (max_raw < s_filter.vol_noise) ? 0.05f : 0.005f;
         s_filter.vol_noise    = s_filter.vol_noise * (1.0f - vol_noise_alpha) + max_raw * vol_noise_alpha;
 
@@ -284,7 +254,7 @@ static void mic_task(void* arg) {
             s_filter.peak_decay *= 0.98f;
         }
 
-        /* 噪声门限 */
+        /* 门限以下整体清零,避免静默环境下底噪扰动灯效 */
         float squelch_f  = (float)s_squelch / 255.0f * 0.15f;
         float out_volume = (s_filter.smooth_vol > squelch_f) ? s_filter.smooth_vol : 0;
         if (out_volume == 0) {
@@ -294,7 +264,6 @@ static void mic_task(void* arg) {
         float beat = beat_detect(raw_energy);
         if (out_volume == 0) beat = 0;
 
-        /* 写入共享数据 */
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         memcpy(s_data.bands, current_bands, sizeof(current_bands));
         s_data.volume        = out_volume;
@@ -310,7 +279,7 @@ static void mic_task(void* arg) {
 void mic_init(const settings_t* st) {
     s_mutex = xSemaphoreCreateMutex();
     if (!s_mutex) {
-        ESP_LOGE(TAG, "failed to create mutex");
+        ESP_LOGE(TAG, "mutex create failed");
         return;
     }
 
@@ -324,7 +293,7 @@ void mic_init(const settings_t* st) {
 
     esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &s_rx_chan);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to create i2s channel: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "i2s channel create failed: %s", esp_err_to_name(err));
         return;
     }
 
@@ -342,12 +311,13 @@ void mic_init(const settings_t* st) {
     };
 
     if (i2s_channel_init_std_mode(s_rx_chan, &std_cfg) != ESP_OK || i2s_channel_enable(s_rx_chan) != ESP_OK) {
-        ESP_LOGE(TAG, "failed to init i2s channel");
+        ESP_LOGE(TAG, "i2s channel init failed");
         return;
     }
 
+    /* mic_task 绑 core 1,让 core 0 专注渲染避免抢 RMT 时序 */
     xTaskCreatePinnedToCore(mic_task, "mic", 8192, NULL, 5, NULL, 1);
-    ESP_LOGI(TAG, "mic init ok, sck: %d, ws: %d, din: %d", st->mic_sck, st->mic_ws, st->mic_din);
+    ESP_LOGI(TAG, "mic ready, sck: %d, ws: %d, din: %d", st->mic_sck, st->mic_ws, st->mic_din);
 }
 
 void mic_get_data(mic_data_t* out) {

@@ -1,24 +1,16 @@
-/**
- * @file led_map.c
- * @brief LED 坐标映射：蛇形走线、旋转变换、物理查找表
- */
-
 #include "led_priv.h"
 
 int     s_w = 8, s_h = 8;
 uint8_t s_serpentine = 0, s_start = 0, s_rotation = 0;
 int16_t s_lookup[LED_MAX_COUNT];
 
-/**
- * @brief 逻辑坐标转物理索引（基础映射）
- */
 static int get_physical_idx(int px, int py) {
     if (px < 0 || px >= s_w || py < 0 || py >= s_h) return -1;
 
     int x = (s_start & 1) ? (s_w - 1 - px) : px;
     int y = (s_start & 2) ? (s_h - 1 - py) : py;
 
-    /* 蛇形走线：在 start 翻转之后对物理 y 判断奇偶 */
+    /* 蛇形走线在 start 翻转之后再做奇偶行反向,否则起点不在角落时会错位 */
     if (s_serpentine && (y & 1)) {
         x = (s_w - 1) - x;
     }
@@ -26,7 +18,7 @@ static int get_physical_idx(int px, int py) {
     return y * s_w + x;
 }
 
-void ledmap_rebuild(void) {
+void led_map_rebuild(void) {
     int lw = led_width();
     int lh = led_height();
 

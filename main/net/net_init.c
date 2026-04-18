@@ -1,8 +1,3 @@
-/**
- * @file net_init.c
- * @brief 网络栈初始化：TCP/IP 栈、事件循环
- */
-
 #include "net_init.h"
 
 #include <esp_event.h>

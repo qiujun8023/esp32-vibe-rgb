@@ -1,15 +1,8 @@
-/**
- * @file fx_misc.c
- * @brief 其他特效：随机像素、波浪、涟漪、DJ 灯光等
- */
-
 #include <esp_random.h>
 
 #include "effects_internal.h"
 
-/**
- * @brief 随机像素效果 (FX_PIXELS, #19)
- */
+/* FX_PIXELS #19 */
 void fx_pixels(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed);
     int count = s->intensity / 16 + 1;
@@ -29,9 +22,7 @@ void fx_pixels(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off = fmodf(s_st.hue_off + 0.5f, 255);
 }
 
-/**
- * @brief 像素波效果 (FX_PIXELWAVE, #12)
- */
+/* FX_PIXELWAVE #12 */
 void fx_pixelwave(const mic_data_t* d, const settings_t* s) {
     fade_out(240);
     int bri = (int)(d->volume * s->intensity);
@@ -58,15 +49,12 @@ void fx_pixelwave(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off = fmodf(s_st.hue_off + 0.5f, 255);
 }
 
-/**
- * @brief 矩阵像素效果 (FX_MATRIPIX, #10)
- */
+/* FX_MATRIPIX #10 */
 void fx_matripix(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
     int bri = (int)(d->volume * s->intensity);
     if (bri > 255) bri = 255;
 
-    /* 向左滚动 */
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w - 1; x++) {
             uint8_t r, g, b;
@@ -85,9 +73,7 @@ void fx_matripix(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 水塘效果 (FX_PUDDLES, #16)
- */
+/* FX_PUDDLES #16 */
 void fx_puddles(const mic_data_t* d, const settings_t* s) {
     fade_out(255 - s->speed / 2);
 
@@ -109,9 +95,7 @@ void fx_puddles(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 水塘峰值效果 (FX_PUDDLEPEAK, #15)
- */
+/* FX_PUDDLEPEAK #15 */
 void fx_puddlepeak(const mic_data_t* d, const settings_t* s) {
     fade_out(20 + s->speed / 8);
 
@@ -132,13 +116,10 @@ void fx_puddlepeak(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 涟漪峰值效果 (FX_RIPPLEPEAK, #13)
- */
+/* FX_RIPPLEPEAK #13 */
 void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
     fade_out(40);
 
-    /* 触发新涟漪 */
     if (d->volume > 0.4f) {
         for (int i = 0; i < MAX_RIPPLES; i++) {
             if (s_st.ripple[i].state < 0 && (esp_random() % 100 < 10)) {
@@ -150,7 +131,6 @@ void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    /* 更新涟漪 */
     for (int i = 0; i < MAX_RIPPLES; i++) {
         if (s_st.ripple[i].state < 0) continue;
 
@@ -173,9 +153,7 @@ void fx_ripplepeak(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief DJ 灯光效果 (FX_DJLIGHT, #27)
- */
+/* FX_DJLIGHT #27 */
 void fx_djlight(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed);
     int w = W, h = H;
@@ -196,9 +174,7 @@ void fx_djlight(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 中心柱效果 (FX_2DCENTERBARS, #2)
- */
+/* FX_2DCENTERBARS #2 */
 void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
 
@@ -239,9 +215,7 @@ void fx_2dcenterbars(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 模糊色块效果 (FX_BLURZ, #26)
- */
+/* FX_BLURZ #26 */
 void fx_blurz(const mic_data_t* d, const settings_t* s) {
     led_blur2d(s->custom2);
     fade_out(s->speed);

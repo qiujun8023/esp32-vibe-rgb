@@ -1,8 +1,3 @@
-/**
- * @file led_hw.c
- * @brief LED 硬件驱动：RMT/WS2812 初始化、亮度缩放、物理刷新
- */
-
 #include <esp_log.h>
 #include <led_strip.h>
 #include <string.h>
@@ -14,9 +9,6 @@ static const char* TAG = "led_hw";
 
 led_strip_handle_t s_strip = NULL;
 
-/**
- * @brief 应用亮度缩放
- */
 static inline uint8_t scale_brightness(uint8_t v) {
     return (uint8_t)((uint32_t)v * s_brightness / 255);
 }
@@ -36,7 +28,7 @@ void led_init(const settings_t* st) {
     }
 
     memset(s_fb, 0, sizeof(s_fb));
-    ledmap_rebuild();
+    led_map_rebuild();
 
     led_strip_config_t strip_cfg = {
         .strip_gpio_num   = st->led_gpio,
@@ -57,7 +49,7 @@ void led_init(const settings_t* st) {
         return;
     }
     led_strip_clear(s_strip);
-    ESP_LOGI(TAG, "led init ok, gpio: %d, size: %dx%d", st->led_gpio, s_w, s_h);
+    ESP_LOGI(TAG, "led ready, gpio: %d, size: %dx%d", st->led_gpio, s_w, s_h);
 }
 
 void led_apply_settings(const settings_t* st) {
@@ -74,7 +66,7 @@ void led_apply_settings(const settings_t* st) {
     }
     s_w = new_w;
     s_h = new_h;
-    ledmap_rebuild();
+    led_map_rebuild();
 }
 
 void led_clear(void) {
@@ -87,7 +79,7 @@ void led_flush(void) {
 
     int count = s_w * s_h;
 
-    /* 直接设置像素，不先清空，避免闪烁 */
+    /* 逐像素覆盖而不 clear,避免旧帧残影和每帧黑屏闪烁 */
     for (int y = 0; y < s_h; y++) {
         for (int x = 0; x < s_w; x++) {
             int phy_idx = s_lookup[y * s_w + x];

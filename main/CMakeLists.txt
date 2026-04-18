@@ -2,9 +2,9 @@ idf_component_register(
     SRCS
         "main.c"
         "settings.c"
-        "led_map.c"
-        "led_fb.c"
-        "led_hw.c"
+        "led/led_map.c"
+        "led/led_fb.c"
+        "led/led_hw.c"
         "mic.c"
         "effects/effects_core.c"
         "effects/fx_freq.c"
@@ -14,22 +14,24 @@ idf_component_register(
         "net/net_init.c"
         "net/wifi_sta.c"
         "net/wifi_prov.c"
+        "net/captive_dns.c"
         "net/settings_json.c"
         "net/ws_push.c"
         "net/http_server.c"
-    INCLUDE_DIRS "." "effects" "net"
-    REQUIRES
+    INCLUDE_DIRS "." "led" "effects" "net"
+    PRIV_REQUIRES
         driver
         esp_wifi
         esp_netif
         esp_event
-        nvs_flash
         esp_http_server
-        led_strip
+        esp_timer
         esp-dsp
         json
-        esp_timer
-    EMBED_TXTFILES
+        led_strip
+        lwip
+        nvs_flash
+    EMBED_FILES
         "html/style.css"
         "html/prov.html"
         "html/ctrl.html"

@@ -1,15 +1,8 @@
-/**
- * @file fx_gravity.c
- * @brief 重力类特效：弹跳球、重力计等
- */
-
 #include <esp_random.h>
 
 #include "effects_internal.h"
 
-/**
- * @brief 弹跳球效果 (FX_JUGGLES, #14)
- */
+/* FX_JUGGLES #14 */
 void fx_juggles(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 100);
     int w = W, h = H;
@@ -56,14 +49,12 @@ void fx_juggles(const mic_data_t* d, const settings_t* s) {
     s_st.phase += 0.5f;
 }
 
-/**
- * @brief 重力计效果 (FX_GRAVIMETER, #5)
- */
+/* FX_GRAVIMETER #5 */
 void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
     int   w = W, h = H;
     float gravity = (10 - s->speed / 32) * 0.05f;
 
-    for (int x = 0; x < w && x < 64; x++) {
+    for (int x = 0; x < w && x < MAX_GRAV_COLS; x++) {
         int   band     = x * MIC_BANDS / w;
         float val      = d->bands[band];
         float target_h = val * h;
@@ -90,9 +81,7 @@ void fx_gravimeter(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 重力中心效果 (FX_GRAVCENTER, #6)
- */
+/* FX_GRAVCENTER #6 */
 void fx_gravcenter(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
     int cx = w / 2;
@@ -117,9 +106,7 @@ void fx_gravcenter(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 重力偏心效果 (FX_GRAVCENTRIC, #7)
- */
+/* FX_GRAVCENTRIC #7 */
 void fx_gravcentric(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
     int cy = h / 2;
@@ -145,9 +132,7 @@ void fx_gravcentric(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off += 0.5f;
 }
 
-/**
- * @brief 重力频率效果 (FX_GRAVFREQ, #8)
- */
+/* FX_GRAVFREQ #8 */
 void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
     int cx  = w / 2;
@@ -172,13 +157,10 @@ void fx_gravfreq(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 下落木板效果 (FX_2DFUNKYPLANK, #9)
- */
+/* FX_2DFUNKYPLANK #9 */
 void fx_2dfunkyplank(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
 
-    /* 向下滚动 */
     for (int y = 0; y < h - 1; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t r, g, b;
@@ -187,7 +169,6 @@ void fx_2dfunkyplank(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    /* 顶部注入新数据 */
     for (int b = 0; b < MIC_BANDS; b++) {
         float val     = d->bands[b];
         int   x_start = b * w / MIC_BANDS;

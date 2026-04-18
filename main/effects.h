@@ -1,8 +1,3 @@
-/**
- * @file effects.h
- * @brief 特效系统接口
- */
-
 #pragma once
 
 #include <stdbool.h>
@@ -46,9 +41,6 @@
 #define FX_BLURZ      26
 #define FX_DJLIGHT    27
 
-/**
- * @brief 特效信息结构
- */
 typedef struct {
     const char* name;
     const char* label_c1;
@@ -56,34 +48,12 @@ typedef struct {
     const char* label_c3;
 } effect_info_t;
 
-/**
- * @brief 初始化特效系统
- */
 void effects_init(void);
-
-/**
- * @brief 设置当前特效
- */
 void effects_set_mode(uint8_t id);
 
 #include "mic.h"
 
-/**
- * @brief 更新特效帧
- */
 void effects_update(const mic_data_t* data, const settings_t* s);
-
-/**
- * @brief 暂停特效
- */
 void effects_pause(void);
-
-/**
- * @brief 恢复特效
- */
 void effects_resume(void);
-
-/**
- * @brief 检查是否暂停
- */
 bool effects_is_paused(void);

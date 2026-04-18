@@ -1,15 +1,8 @@
-/**
- * @file fx_freq.c
- * @brief 频谱类特效：频谱柱、均衡器、瀑布流等
- */
-
 #include <esp_random.h>
 
 #include "effects_internal.h"
 
-/**
- * @brief 频谱柱效果 (FX_SPECTRUM, #0)
- */
+/* FX_SPECTRUM #0 */
 void fx_spectrum(const mic_data_t* d, const settings_t* s) {
     int  w      = W;
     int  h      = H;
@@ -24,7 +17,6 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
         int bar = (int)(d->bands[mic_b] * h + 0.5f);
         if (bar > h) bar = h;
 
-        /* 峰值计算 */
         int py = -1;
         if (s->custom2 > 64) {
             if (bar > s_st.peak_hold[b]) s_st.peak_hold[b] = (float)bar;
@@ -33,7 +25,6 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
             py = (int)s_st.peak_hold[b];
         }
 
-        /* 逐像素绘制 */
         for (int y = 0; y < h; y++) {
             uint8_t r, g, bv;
             if (y < bar) {
@@ -52,7 +43,6 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    /* 镜像显示 */
     if (mirror) {
         for (int b = 0; b < w / 2; b++) {
             for (int y = 0; y < h; y++) {
@@ -64,19 +54,16 @@ void fx_spectrum(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 频谱均衡器效果 (FX_2DGEQ, #1)
- */
+/* FX_2DGEQ #1 */
 void fx_2dgeq(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
-    for (int x = 0; x < w; x++) {
+    for (int x = 0; x < w && x < MAX_GRAV_COLS; x++) {
         int   band  = x * MIC_BANDS / w;
         float val   = d->bands[band];
         int   bar_h = (int)(val * h);
         if (bar_h < 1 && val > 0.05f) bar_h = 1;
         rgb_t c = palette_color(s->palette, x * 255 / w);
 
-        /* 峰值追踪 */
         if (bar_h > (int)s_st.geq_peak[x]) {
             s_st.geq_peak[x] = (float)bar_h;
         } else if (s_st.frame % 4 == 0 && s_st.geq_peak[x] > 0) {
@@ -101,13 +88,11 @@ void fx_2dgeq(const mic_data_t* d, const settings_t* s) {
     s_st.frame++;
 }
 
-/**
- * @brief 瀑布流效果 (FX_WATERFALL, #4)
- */
+/* FX_WATERFALL #4 */
 void fx_waterfall(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
 
-    /* 向下滚动 */
+    /* 每帧整屏向下平移一行 */
     for (int y = 0; y < h - 1; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t r, g, b;
@@ -116,7 +101,6 @@ void fx_waterfall(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    /* 顶部新数据 */
     float freq_color = (d->major_peak > 0) ? freq_to_color(d->major_peak) : 0;
     rgb_t c          = palette_color(s->palette, (uint8_t)freq_color + (uint8_t)s_st.hue_off);
     int   bri        = (int)(d->volume * 255);
@@ -129,9 +113,7 @@ void fx_waterfall(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off += 0.5f;
 }
 
-/**
- * @brief 频谱映射效果 (FX_BINMAP, #3)
- */
+/* FX_BINMAP #3 */
 void fx_binmap(const mic_data_t* d, const settings_t* s) {
     fade_out(64);
     int w = W, h = H;
@@ -149,9 +131,7 @@ void fx_binmap(const mic_data_t* d, const settings_t* s) {
     s_st.phase += 0.5f;
 }
 
-/**
- * @brief 频率波效果 (FX_FREQWAVE, #11)
- */
+/* FX_FREQWAVE #11 */
 void fx_freqwave(const mic_data_t* d, const settings_t* s) {
     fade_out(30);
     float freq = d->major_peak;
@@ -159,7 +139,7 @@ void fx_freqwave(const mic_data_t* d, const settings_t* s) {
     int   bri  = (int)(d->volume * 255);
     int   w = W, h = H, cx = w / 2, cy = h / 2;
 
-    /* 波纹扩散 */
+    /* 从中心向外平移像素,形成波纹扩散 */
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t r, g, b;
@@ -180,16 +160,13 @@ void fx_freqwave(const mic_data_t* d, const settings_t* s) {
         }
     }
 
-    /* 中心亮点 */
     led_set_pixel(cx, cy, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
     led_set_pixel(cx - 1, cy, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
     led_set_pixel(cx, cy - 1, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
     led_set_pixel(cx - 1, cy - 1, c.r * bri / 255, c.g * bri / 255, c.b * bri / 255);
 }
 
-/**
- * @brief 频率像素效果 (FX_FREQPIXELS, #17)
- */
+/* FX_FREQPIXELS #17 */
 void fx_freqpixels(const mic_data_t* d, const settings_t* s) {
     fade_out(255 - s->speed / 2);
     int count = s->intensity / 16 + 1;
@@ -204,9 +181,7 @@ void fx_freqpixels(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 频率映射效果 (FX_FREQMAP, #18)
- */
+/* FX_FREQMAP #18 */
 void fx_freqmap(const mic_data_t* d, const settings_t* s) {
     fade_out(200);
     int w = W, h = H;

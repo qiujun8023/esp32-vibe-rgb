@@ -1,14 +1,8 @@
-/**
- * @file main.c
- * @brief ESP32 Vibe RGB 主入口
- */
-
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <nvs_flash.h>
 
-#include "config.h"
 #include "effects.h"
 #include "led.h"
 #include "mic.h"
@@ -20,11 +14,7 @@
 
 static const char* TAG = "main";
 
-/**
- * @brief 灯效渲染任务（Core 0，约 30 fps）
- *
- * 使用 settings_copy 快照避免持锁渲染
- */
+/* 渲染任务固定在 core 0,mic_task 占用 core 1;用 settings 快照避免持锁渲染 */
 static void effect_task(void* arg) {
     mic_data_t data;
     TickType_t last = xTaskGetTickCount();
@@ -41,9 +31,6 @@ static void effect_task(void* arg) {
     }
 }
 
-/**
- * @brief 开机动画
- */
 static void boot_animation(void) {
     int w = led_width(), h = led_height();
     for (int step = 0; step < 24; step++) {
@@ -61,9 +48,7 @@ static void boot_animation(void) {
     led_flush();
 }
 
-/**
- * @brief 配网指示动画任务（扫列蓝光）
- */
+/* 配网期间蓝色扫列指示灯,提示用户连接 AP */
 static void prov_led_task(void* arg) {
     int step = 0;
     while (1) {
@@ -81,6 +66,7 @@ static void prov_led_task(void* arg) {
 void app_main(void) {
     ESP_LOGI(TAG, "system starting");
 
+    /* 基础设施:nvs → netif → event loop */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "nvs partition corrupted, erasing");
@@ -88,9 +74,9 @@ void app_main(void) {
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+    net_init();
 
     settings_init();
-    net_init();
 
     settings_t snap;
     settings_copy(&snap);
@@ -112,16 +98,12 @@ void app_main(void) {
     mic_init(&snap);
 
     wifi_sta_init(&snap);
-    if (!wifi_sta_wait_connected(WIFI_STA_TIMEOUT_MS)) {
-        ESP_LOGE(TAG, "wifi connection failed, clearing credentials");
-        settings_lock();
-        settings_t* s = settings_get();
-        s->ssid[0]    = '\0';
-        s->pass[0]    = '\0';
-        settings_unlock();
-        settings_save();
-        vTaskDelay(pdMS_TO_TICKS(500));
-        esp_restart();
+    if (!wifi_sta_wait_connected(CONFIG_ESP_STA_TIMEOUT_MS)) {
+        /* 连不上就降级到配网 AP,不清凭据也不重启,让用户改密后重试 */
+        ESP_LOGW(TAG, "wifi connect failed, falling back to provisioning ap");
+        xTaskCreate(prov_led_task, "prov_led", 2048, NULL, 4, NULL);
+        wifi_prov_start_ap();  /* 阻塞直至用户提交表单,内部会 esp_restart,不返回 */
+        return;
     }
 
     http_server_start();

@@ -1,8 +1,3 @@
-/**
- * @file settings_json.c
- * @brief settings 与 JSON 的序列化/反序列化
- */
-
 #include "settings_json.h"
 
 #include <lwip/inet.h>
@@ -11,7 +6,7 @@
 char* settings_to_json(const settings_t* s) {
     cJSON* root = cJSON_CreateObject();
 
-    /* WiFi（不包含密码） */
+    /* 不回传密码,避免前端看到明文 */
     cJSON_AddStringToObject(root, "ssid", s->ssid);
     cJSON_AddNumberToObject(root, "ip_mode", s->ip_mode);
 
@@ -28,7 +23,6 @@ char* settings_to_json(const settings_t* s) {
     a.s_addr = s->s_dns2;
     cJSON_AddStringToObject(root, "s_dns2", inet_ntoa_r(a, ip_s, sizeof(ip_s)));
 
-    /* LED */
     cJSON_AddNumberToObject(root, "led_gpio", s->led_gpio);
     cJSON_AddNumberToObject(root, "led_w", s->led_w);
     cJSON_AddNumberToObject(root, "led_h", s->led_h);
@@ -37,7 +31,6 @@ char* settings_to_json(const settings_t* s) {
     cJSON_AddNumberToObject(root, "led_rotation", s->led_rotation);
     cJSON_AddNumberToObject(root, "brightness", s->brightness);
 
-    /* 麦克风 */
     cJSON_AddNumberToObject(root, "mic_sck", s->mic_sck);
     cJSON_AddNumberToObject(root, "mic_ws", s->mic_ws);
     cJSON_AddNumberToObject(root, "mic_din", s->mic_din);
@@ -46,7 +39,6 @@ char* settings_to_json(const settings_t* s) {
     cJSON_AddNumberToObject(root, "squelch", s->squelch);
     cJSON_AddNumberToObject(root, "fft_smooth", s->fft_smooth);
 
-    /* 特效 */
     cJSON_AddNumberToObject(root, "effect", s->effect);
     cJSON_AddNumberToObject(root, "palette", s->palette);
     cJSON_AddNumberToObject(root, "speed", s->speed);
@@ -55,7 +47,6 @@ char* settings_to_json(const settings_t* s) {
     cJSON_AddNumberToObject(root, "custom2", s->custom2);
     cJSON_AddNumberToObject(root, "custom3", s->custom3);
 
-    /* 效果参数数组 */
     cJSON* params_arr = cJSON_CreateArray();
     for (int i = 0; i < EFFECT_COUNT; i++) {
         cJSON* effect_arr = cJSON_CreateArray();
@@ -96,21 +87,20 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
         }                                                                         \
     }
 
-    /* WiFi SSID（非空才更新） */
+    /* 空字符串不覆盖,前端未填写时保留旧值 */
     cJSON* ssid_it = cJSON_GetObjectItem(root, "ssid");
     if (ssid_it && cJSON_IsString(ssid_it) && ssid_it->valuestring[0]) {
         if (strcmp(s->ssid, ssid_it->valuestring)) *need_restart = true;
         strlcpy(s->ssid, ssid_it->valuestring, sizeof(s->ssid));
     }
 
-    /* WiFi 密码（使用 pass_new 字段） */
+    /* 密码用 pass_new 字段,避免与回传的占位字段混淆 */
     cJSON* pass_it = cJSON_GetObjectItem(root, "pass_new");
     if (pass_it && cJSON_IsString(pass_it) && pass_it->valuestring[0]) {
         if (strcmp(s->pass, pass_it->valuestring)) *need_restart = true;
         strlcpy(s->pass, pass_it->valuestring, sizeof(s->pass));
     }
 
-    /* 需要重启的字段 */
     WATCH_INT("led_gpio", led_gpio);
     WATCH_INT("led_w", led_w);
     WATCH_INT("led_h", led_h);
@@ -118,7 +108,6 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     WATCH_INT("mic_ws", mic_ws);
     WATCH_INT("mic_din", mic_din);
 
-    /* 普通字段 */
     GET_INT("led_serpentine", led_serpentine);
     GET_INT("led_start", led_start);
     GET_INT("led_rotation", led_rotation);
@@ -131,7 +120,7 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     uint8_t old_effect = s->effect;
     GET_INT("effect", effect);
 
-    /* 效果切换时：保存旧参数，加载新参数 */
+    /* 切换效果前把当前 custom1/2/3 存回旧 slot,再从新 slot 加载 */
     if (s->effect != old_effect && s->effect < EFFECT_COUNT) {
         s->effect_params[old_effect][0] = s->custom1;
         s->effect_params[old_effect][1] = s->custom2;
@@ -145,7 +134,7 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
     GET_INT("speed", speed);
     GET_INT("intensity", intensity);
 
-    /* effect_params 数组反序列化（可选，用于完整配置恢复） */
+    /* 完整恢复场景(例如前端一次性 POST 全量配置)才会带 effect_params */
     cJSON* params_arr = cJSON_GetObjectItem(root, "effect_params");
     if (params_arr && cJSON_IsArray(params_arr)) {
         int count = cJSON_GetArraySize(params_arr);
@@ -160,13 +149,12 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
                 }
             }
         }
-        /* 从数组同步当前效果的运行时参数 */
         s->custom1 = s->effect_params[s->effect][0];
         s->custom2 = s->effect_params[s->effect][1];
         s->custom3 = s->effect_params[s->effect][2];
     }
 
-    /* 参数更新时：保存到当前效果（优先级最高，覆盖 effect_params 的同步结果） */
+    /* 单字段更新优先级最高,覆盖上面数组同步的结果 */
     cJSON* c1_it = cJSON_GetObjectItem(root, "custom1");
     cJSON* c2_it = cJSON_GetObjectItem(root, "custom2");
     cJSON* c3_it = cJSON_GetObjectItem(root, "custom3");
@@ -183,7 +171,6 @@ bool settings_from_cjson(cJSON* root, settings_t* s, bool* need_restart) {
         s->effect_params[s->effect][2] = s->custom3;
     }
 
-    /* 静态 IP 字段 */
     cJSON* it;
     if ((it = cJSON_GetObjectItem(root, "s_ip")) && cJSON_IsString(it)) s->s_ip = inet_addr(it->valuestring);
     if ((it = cJSON_GetObjectItem(root, "s_mask")) && cJSON_IsString(it)) s->s_mask = inet_addr(it->valuestring);

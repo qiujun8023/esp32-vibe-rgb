@@ -1,13 +1,6 @@
-/**
- * @file fx_noise.c
- * @brief 噪声类特效：等离子、极光、火焰等
- */
-
 #include "effects_internal.h"
 
-/**
- * @brief 等离子体效果 (FX_PLASMOID, #21)
- */
+/* FX_PLASMOID #21 */
 void fx_plasmoid(const mic_data_t* d, const settings_t* s) {
     int   w = W, h = H;
     float speed = s->speed / 128.0f;
@@ -27,9 +20,7 @@ void fx_plasmoid(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off += 0.5f;
 }
 
-/**
- * @brief 中间噪声效果 (FX_MIDNOISE, #23)
- */
+/* FX_MIDNOISE #23 */
 void fx_midnoise(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 100);
     int w = W, h = H;
@@ -55,9 +46,7 @@ void fx_midnoise(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off += 1.0f;
 }
 
-/**
- * @brief 噪声计效果 (FX_NOISEMETER, #24)
- */
+/* FX_NOISEMETER #24 */
 void fx_noisemeter(const mic_data_t* d, const settings_t* s) {
     int w = W, h = H;
 
@@ -78,9 +67,7 @@ void fx_noisemeter(const mic_data_t* d, const settings_t* s) {
     s_st.phase += s->speed / 255.0f;
 }
 
-/**
- * @brief 噪声火焰效果 (FX_NOISEFIRE, #20)
- */
+/* FX_NOISEFIRE #20 */
 void fx_noisefire(const mic_data_t* d, const settings_t* s) {
     int   w = W, h = H;
     float speed = s->speed / 64.0f;
@@ -100,9 +87,7 @@ void fx_noisefire(const mic_data_t* d, const settings_t* s) {
     }
 }
 
-/**
- * @brief 极光效果 (FX_AURORA, #22)
- */
+/* FX_AURORA #22 */
 void fx_aurora(const mic_data_t* d, const settings_t* s) {
     int   w = W, h = H;
     float speed = s->speed / 255.0f * 0.1f;
@@ -128,9 +113,7 @@ void fx_aurora(const mic_data_t* d, const settings_t* s) {
     s_st.hue_off += 0.2f;
 }
 
-/**
- * @brief 噪声移动效果 (FX_NOISEMOVE, #25)
- */
+/* FX_NOISEMOVE #25 */
 void fx_noisemove(const mic_data_t* d, const settings_t* s) {
     fade_out(s->speed / 2 + 128);
     int w = W, h = H;

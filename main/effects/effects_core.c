@@ -1,23 +1,18 @@
-/**
- * @file effects_core.c
- * @brief 特效系统核心：初始化、状态管理、调度
- */
-
 #include <esp_log.h>
 #include <esp_random.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include "effects_internal.h"
 
-static const char*   TAG      = "effects";
-static volatile bool s_paused = false;
+static const char*       TAG       = "effects";
+static bool              s_paused  = false;
+static SemaphoreHandle_t s_fx_lock = NULL;
 
 fx_state_t s_st;
 uint8_t    s_mode = 0;
 
-/**
- * @brief 效果信息表
- */
 const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
     {"频谱柱", "色彩模式", "显示峰值", "开启镜像"},
     {"频谱均衡", "消退速率", "显示峰值", ""},
@@ -49,9 +44,6 @@ const effect_info_t EFFECT_INFO[EFFECT_COUNT] = {
     {"DJ 灯光", "扫描速度", "闪烁时长", ""},
 };
 
-/**
- * @brief 绘制频谱柱
- */
 void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
     int h = H;
     for (int i = 0; i < h; i++) {
@@ -63,9 +55,6 @@ void draw_bar(int band, int height, rgb_t c, const settings_t* s) {
     }
 }
 
-/**
- * @brief 初始化噪声置换表
- */
 void noise_setup(void) {
     if (s_st.noise_init) return;
     for (int i = 0; i < 256; i++) s_st.perm[i] = i;
@@ -79,9 +68,7 @@ void noise_setup(void) {
     s_st.noise_init = true;
 }
 
-/**
- * @brief 2D Perlin 噪声
- */
+/* 2D Perlin 噪声 */
 float noise2d(float x, float y) {
     if (!s_st.noise_init) noise_setup();
     int   ix = (int)floorf(x) & 255;
@@ -89,7 +76,7 @@ float noise2d(float x, float y) {
     float fx = x - floorf(x);
     float fy = y - floorf(y);
 
-    /* 平滑插值 */
+    /* smoothstep 缓和网格边界不连续 */
     fx = fx * fx * (3.0f - 2.0f * fx);
     fy = fy * fy * (3.0f - 2.0f * fy);
 
@@ -102,9 +89,6 @@ float noise2d(float x, float y) {
     return (x0 + fy * (x1 - x0)) / 255.0f;
 }
 
-/**
- * @brief 16 位噪声值（用于调色板索引）
- */
 uint16_t noise16(uint32_t x, uint32_t y) {
     if (!s_st.noise_init) noise_setup();
     int ix = (x >> 8) & 255;
@@ -112,16 +96,11 @@ uint16_t noise16(uint32_t x, uint32_t y) {
     return s_st.perm[(s_st.perm[ix] + iy) & 255] << 8;
 }
 
-/**
- * @brief 帧缓冲淡出
- */
 void fade_out(uint8_t rate) {
     led_fade_all(rate);
 }
 
-/**
- * @brief 频率映射为调色板位置（对数分布）
- */
+/* 频率 → 调色板 0-255,对数分布符合人耳感知 */
 uint8_t freq_to_color(float freq) {
     if (freq < 60.0f) return 0;
     if (freq > 8000.0f) return 255;
@@ -131,9 +110,6 @@ uint8_t freq_to_color(float freq) {
     return (uint8_t)((log_freq - log_min) * 255.0f / (log_max - log_min));
 }
 
-/**
- * @brief 频率映射为矩阵位置（对数分布）
- */
 int freq_to_pos(float freq, int max_pos) {
     if (freq < 60.0f) return 0;
     if (freq > 8000.0f) return max_pos - 1;
@@ -153,50 +129,62 @@ static const fx_fn_t FX_TABLE[EFFECT_COUNT] = {
 };
 
 void effects_init(void) {
+    if (!s_fx_lock) s_fx_lock = xSemaphoreCreateMutex();
     memset(&s_st, 0, sizeof(s_st));
     for (int i = 0; i < MAX_RIPPLES; i++) {
         s_st.ripple[i].state = -1;
     }
     s_st.balls_init = false;
     noise_setup();
-    ESP_LOGI(TAG, "effects init ok, count: %d", EFFECT_COUNT);
+    ESP_LOGI(TAG, "effects ready, count: %d", EFFECT_COUNT);
 }
 
 void effects_set_mode(uint8_t id) {
-    if (id < EFFECT_COUNT) {
-        s_mode = id;
+    if (id >= EFFECT_COUNT) return;
+    xSemaphoreTake(s_fx_lock, portMAX_DELAY);
+    s_mode = id;
 
-        /* 保留噪声置换表 */
-        uint8_t perm_backup[256];
-        memcpy(perm_backup, s_st.perm, 256);
-        bool noise_init_backup = s_st.noise_init;
+    /* 切换效果时 memset 清 state,但噪声 perm 表需跨效果保留 */
+    uint8_t perm_backup[256];
+    memcpy(perm_backup, s_st.perm, 256);
+    bool noise_init_backup = s_st.noise_init;
 
-        memset(&s_st, 0, sizeof(s_st));
+    memset(&s_st, 0, sizeof(s_st));
 
-        memcpy(s_st.perm, perm_backup, 256);
-        s_st.noise_init = noise_init_backup;
+    memcpy(s_st.perm, perm_backup, 256);
+    s_st.noise_init = noise_init_backup;
 
-        for (int i = 0; i < MAX_RIPPLES; i++) {
-            s_st.ripple[i].state = -1;
-        }
-        s_st.balls_init = false;
+    for (int i = 0; i < MAX_RIPPLES; i++) {
+        s_st.ripple[i].state = -1;
     }
+    s_st.balls_init = false;
+    xSemaphoreGive(s_fx_lock);
 }
 
 void effects_update(const mic_data_t* data, const settings_t* s) {
-    if (s_paused || s_mode >= EFFECT_COUNT) return;
-    if (!s_st.noise_init) noise_setup();
-    FX_TABLE[s_mode](data, s);
+    xSemaphoreTake(s_fx_lock, portMAX_DELAY);
+    if (!s_paused && s_mode < EFFECT_COUNT) {
+        if (!s_st.noise_init) noise_setup();
+        FX_TABLE[s_mode](data, s);
+    }
+    xSemaphoreGive(s_fx_lock);
 }
 
 void effects_pause(void) {
+    xSemaphoreTake(s_fx_lock, portMAX_DELAY);
     s_paused = true;
+    xSemaphoreGive(s_fx_lock);
 }
 
 void effects_resume(void) {
+    xSemaphoreTake(s_fx_lock, portMAX_DELAY);
     s_paused = false;
+    xSemaphoreGive(s_fx_lock);
 }
 
 bool effects_is_paused(void) {
-    return s_paused;
+    xSemaphoreTake(s_fx_lock, portMAX_DELAY);
+    bool p = s_paused;
+    xSemaphoreGive(s_fx_lock);
+    return p;
 }

@@ -1,7 +1,4 @@
-/**
- * @file effects_internal.h
- * @brief 特效系统内部共享头，仅供 effects 模块使用
- */
+/* 仅供 effects 模块内部使用,外部请用 effects.h */
 
 #pragma once
 
@@ -19,21 +16,17 @@
 
 #define MAX_RIPPLES 16
 #define MAX_BALLS   12
+/* 列状态数组容量上限,矩阵宽度超过时按此截断 */
+#define MAX_GRAV_COLS 64
 
 #define W led_width()
 #define H led_height()
 
-/**
- * @brief 获取像素索引（边界检查）
- */
 static inline int get_idx(int x, int y) {
     if (x < 0 || x >= led_width() || y < 0 || y >= led_height()) return -1;
     return y * led_width() + x;
 }
 
-/**
- * @brief 特效状态结构
- */
 typedef struct {
     float    phase;
     float    hue_off;
@@ -41,11 +34,11 @@ typedef struct {
 
     uint8_t scroll_buf[LED_MAX_COUNT][3];
 
-    float grav_pos[64];
-    float grav_vel[64];
-    float peak_hold[64];
-    int   top_led[64];
-    int   geq_peak[64];
+    float grav_pos[MAX_GRAV_COLS];
+    float grav_vel[MAX_GRAV_COLS];
+    float peak_hold[MAX_GRAV_COLS];
+    int   top_led[MAX_GRAV_COLS];
+    int   geq_peak[MAX_GRAV_COLS];
 
     struct {
         float   pos;
@@ -71,21 +64,14 @@ typedef struct {
 extern fx_state_t s_st;
 extern uint8_t    s_mode;
 
-/**
- * @brief 线性映射
- */
 static inline float mapf(float x, float in_min, float in_max, float out_min, float out_max) {
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-/**
- * @brief 限制范围
- */
 static inline float constrainf(float x, float min_val, float max_val) {
     return x < min_val ? min_val : (x > max_val ? max_val : x);
 }
 
-/* 内部函数声明 */
 void     noise_setup(void);
 float    noise2d(float x, float y);
 uint16_t noise16(uint32_t x, uint32_t y);

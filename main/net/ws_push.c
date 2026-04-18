@@ -1,8 +1,3 @@
-/**
- * @file ws_push.c
- * @brief WebSocket LED 帧推流：20 fps 广播像素和音频数据
- */
-
 #include "ws_push.h"
 
 #include <esp_log.h>
@@ -25,41 +20,25 @@ static const char* TAG = "ws_push";
 
 static httpd_handle_t s_server_ref = NULL;
 
-/**
- * @brief 推流任务
- */
 static void push_task(void* arg) {
     TickType_t last           = xTaskGetTickCount();
     TickType_t fps_ts         = xTaskGetTickCount();
     TickType_t last_ping_tick = xTaskGetTickCount();
     int        fps_cnt = 0, fps_val = 0;
 
-    uint8_t* fb = malloc(LED_MAX_COUNT * 3);
-    if (!fb) {
-        ESP_LOGE(TAG, "failed to allocate ws fb buffer");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    char* msg = malloc(LED_MAX_COUNT * 6 + 1024);
-    if (!msg) {
-        ESP_LOGE(TAG, "failed to allocate ws msg buffer");
-        free(fb);
-        vTaskDelete(NULL);
-        return;
-    }
+    /* 任务常驻,用 static 而非栈或 heap:栈会超,heap 会频繁分配释放 */
+    static uint8_t fb[LED_MAX_COUNT * 3];
+    static char    msg[LED_MAX_COUNT * 6 + 1024];
 
     while (1) {
         vTaskDelayUntil(&last, pdMS_TO_TICKS(50));
 
         if (!s_server_ref) continue;
 
-        /* 获取所有连接 */
         size_t fds_count = MAX_HTTP_SOCKETS;
         int    client_fds[MAX_HTTP_SOCKETS];
         if (httpd_get_client_list(s_server_ref, &fds_count, client_fds) != ESP_OK) continue;
 
-        /* 筛选 WS 客户端 */
         int ws_fds[MAX_WS_CLIENTS];
         int ws_count = 0;
         for (size_t i = 0; i < fds_count && ws_count < MAX_WS_CLIENTS; i++) {
@@ -71,7 +50,6 @@ static void push_task(void* arg) {
 
         TickType_t now = xTaskGetTickCount();
 
-        /* Ping 心跳（每 10 秒） */
         if (now - last_ping_tick >= pdMS_TO_TICKS(10000)) {
             httpd_ws_frame_t ping = {.type = HTTPD_WS_TYPE_PING, .len = 0};
             for (int i = 0; i < ws_count; i++) {
@@ -80,7 +58,6 @@ static void push_task(void* arg) {
             last_ping_tick = now;
         }
 
-        /* 采集数据 */
         mic_data_t d;
         mic_get_data(&d);
 
@@ -97,9 +74,9 @@ static void push_task(void* arg) {
 
         int rssi    = wifi_sta_rssi();
         int pos     = 0;
-        int max_len = LED_MAX_COUNT * 6 + 1024;
+        int max_len = (int)sizeof(msg);
 
-        /* 拼装 JSON */
+        /* 手写 hex 序列化比 snprintf("%02x") 快约 10 倍,对每帧广播值得 */
         static const char HEX_CHARS[] = "0123456789abcdef";
         pos += snprintf(msg + pos, max_len - pos, "{\"pixels\":\"");
         for (int i = 0; i < fblen && pos + 2 < max_len; i++) {
@@ -129,8 +106,9 @@ static void push_task(void* arg) {
         for (int i = 0; i < ws_count; i++) {
             esp_err_t err = httpd_ws_send_frame_async(s_server_ref, ws_fds[i], &pkt);
             if (err != ESP_OK) {
+                /* 这几种错误码表示 socket 已死,必须主动关闭否则 fd 泄漏 */
                 if (err == ESP_ERR_INVALID_STATE || err == ESP_ERR_NOT_FOUND || err == ESP_ERR_HTTPD_RESP_HDR) {
-                    ESP_LOGW(TAG, "ws fd=%d disconnected", ws_fds[i]);
+                    ESP_LOGD(TAG, "ws fd=%d disconnected", ws_fds[i]);
                     httpd_sess_trigger_close(s_server_ref, ws_fds[i]);
                 }
             }
@@ -141,5 +119,5 @@ static void push_task(void* arg) {
 void ws_push_start(httpd_handle_t server) {
     s_server_ref = server;
     xTaskCreate(push_task, "ws_push", 6144, NULL, 4, NULL);
-    ESP_LOGI(TAG, "ws push task started");
+    ESP_LOGI(TAG, "ws push ready");
 }
