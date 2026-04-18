@@ -1,4 +1,4 @@
-/* 配网 AP: SoftAP + DHCP option 114 + DNS 劫持 + 客户端白名单 */
+/* 配网 AP：SoftAP + DHCP Option 114 + DNS 劫持 + 客户端白名单 */
 
 #include "wifi_prov.h"
 
@@ -37,7 +37,7 @@ extern const char     html_style_css_start[] asm("_binary_style_css_start");
 extern const unsigned prov_html_length asm("prov_html_length");
 extern const unsigned style_css_length asm("style_css_length");
 
-/* captive portal 客户端白名单(环形队列) */
+/* captive portal 客户端白名单（环形队列）*/
 static uint32_t          s_portal_done[CONFIG_ESP_MAX_STA_CONN];
 static uint8_t           s_portal_count = 0;
 static uint8_t           s_portal_head  = 0;

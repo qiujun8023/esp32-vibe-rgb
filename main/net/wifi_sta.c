@@ -18,7 +18,7 @@ static const char* TAG = "wifi_sta";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
-/* 首连失败 5 次置 FAIL 让 wait_connected 返回,但之后仍按指数退避继续重连,
+/* 首连失败 5 次置 FAIL 让 wait_connected 返回，但之后仍按指数退避继续重连，
  * 这样路由器短暂断电等场景设备不会永久掉线 */
 #define WIFI_FIRST_CONNECT_ATTEMPTS 5
 #define WIFI_MAX_BACKOFF_MS        30000
@@ -28,12 +28,12 @@ static int                s_retry         = 0;
 static bool               s_first_done    = false;
 static TaskHandle_t       s_retry_task    = NULL;
 
-/* 单独任务做 delay:wifi_handler 事件回调里不能阻塞,也不能在回调里直接 connect */
+/* 单独任务做 delay：wifi_handler 事件回调里不能阻塞，也不能在回调里直接 connect */
 static void reconnect_task(void* arg) {
     uint32_t delay_ms = (uint32_t)(uintptr_t)arg;
     vTaskDelay(pdMS_TO_TICKS(delay_ms));
-    /* 必须在 esp_wifi_connect 前清句柄:若本次仍失败,disconnect 事件可能在清句柄前到达,
-     * 看到非 NULL 就跳过排队,最终无人再重连 */
+    /* 必须在 esp_wifi_connect 前清句柄：若本次仍失败，disconnect 事件可能在清句柄前到达，
+     * 看到非 NULL 就跳过排队，最终无人再重连 */
     s_retry_task = NULL;
     esp_wifi_connect();
     vTaskDelete(NULL);
@@ -47,7 +47,7 @@ static void schedule_reconnect(uint32_t delay_ms) {
 static void wifi_handler(void* arg, esp_event_base_t b, int32_t id, void* data) {
     if (b == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_retry++;
-        /* 指数退避 1,2,4,8,16s,封顶 30s */
+        /* 指数退避 1、2、4、8、16 s，封顶 30 s */
         uint32_t backoff = 1000U << (s_retry > 5 ? 5 : (s_retry - 1));
         if (backoff > WIFI_MAX_BACKOFF_MS) backoff = WIFI_MAX_BACKOFF_MS;
 

@@ -100,7 +100,7 @@ void fade_out(uint8_t rate) {
     led_fade_all(rate);
 }
 
-/* 频率 → 调色板 0-255,对数分布符合人耳感知 */
+/* 频率 → 调色板 0-255，对数分布符合人耳感知 */
 uint8_t freq_to_color(float freq) {
     if (freq < 60.0f) return 0;
     if (freq > 8000.0f) return 255;
@@ -144,7 +144,7 @@ void effects_set_mode(uint8_t id) {
     xSemaphoreTake(s_fx_lock, portMAX_DELAY);
     s_mode = id;
 
-    /* 切换效果时 memset 清 state,但噪声 perm 表需跨效果保留 */
+    /* 切换效果时 memset 清 state，但噪声 perm 表需跨效果保留 */
     uint8_t perm_backup[256];
     memcpy(perm_backup, s_st.perm, 256);
     bool noise_init_backup = s_st.noise_init;

@@ -16,7 +16,7 @@ static const uint8_t DEFAULT_PARAMS[EFFECT_COUNT][3] = DEFAULT_EFFECT_PARAMS;
 
 static SemaphoreHandle_t s_mutex = NULL;
 static settings_t        s;
-/* 最近一次成功写入 NVS 的内容;配合 memcmp 跳过无变化的写,减少 flash 擦写次数 */
+/* 最近一次成功写入 NVS 的内容；配合 memcmp 跳过无变化的写，减少 flash 擦写次数 */
 static settings_t        s_last_saved;
 static bool              s_last_saved_valid = false;
 
@@ -78,7 +78,7 @@ void settings_init(void) {
     nvs_close(h);
 
     if (ret == ESP_OK && len > 0) {
-        /* blob 比当前 struct 小说明是旧版本,缺失字段保留 settings_set_defaults 的值 */
+        /* blob 比当前 struct 小说明是旧版本，缺失字段保留 settings_set_defaults 的值 */
         if (len < sizeof(s)) s.cfg_version = 0;
         ESP_LOGI(TAG, "settings loaded v%d", s.cfg_version);
 
@@ -103,7 +103,7 @@ void settings_init(void) {
 
     settings_effect_load_params(s.effect);
 
-    /* 把启动时的 NVS 状态作为"已保存"基线,避免无变更时重复写 flash */
+    /* 把启动时的 NVS 状态作为"已保存"基线，避免无变更时重复写 flash */
     s_last_saved       = s;
     s_last_saved_valid = true;
 }
@@ -127,7 +127,7 @@ void settings_copy(settings_t* out) {
 }
 
 void settings_save(void) {
-    /* 先拷贝到栈快照再放锁,flash 擦写可能耗时数十 ms,持锁会阻塞其他任务 */
+    /* 先拷贝到栈快照再放锁，flash 擦写可能耗时数十 ms，持锁会阻塞其他任务 */
     settings_t snap;
     settings_lock();
     snap = s;

@@ -162,12 +162,19 @@ static void mic_task(void* arg) {
             filter_reset(&s_filter);
         }
 
+        static int s_drop_count = 0;
         size_t    bytes_read = 0;
         esp_err_t ret        = i2s_channel_read(s_rx_chan, s_raw, sizeof(s_raw), &bytes_read, pdMS_TO_TICKS(100));
         if (ret != ESP_OK || bytes_read < sizeof(s_raw)) {
+            /* 连续丢帧超过阈值才记录，避免短暂抖动刷屏 */
+            if (++s_drop_count >= 100) {
+                ESP_LOGW(TAG, "i2s read stall: %d frames dropped", s_drop_count);
+                s_drop_count = 0;
+            }
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
         }
+        s_drop_count = 0;
 
         /* I2S 返回 32-bit,有效数据在高 24 位,>>8 后按 24-bit 定点归一化 */
         float raw_energy = 0;
@@ -232,7 +239,7 @@ static void mic_task(void* arg) {
             float val = (s_filter.band_peak[b] > 1e-8f) ? (signal / s_filter.band_peak[b]) : 0.0f;
             if (val > 1.0f) val = 1.0f;
 
-            /* 上升快(0.6) / 下降按用户 smooth 参数调,让峰值跟手、尾音绵软 */
+            /* 上升快（0.6）/ 下降按用户 smooth 参数调，让峰值跟手、尾音绵软 */
             float alpha              = (val > s_filter.smooth_bands[b]) ? 0.6f : (local_smooth / 255.0f * 0.3f + 0.05f);
             s_filter.smooth_bands[b] = s_filter.smooth_bands[b] * (1.0f - alpha) + val * alpha;
             current_bands[b]         = s_filter.smooth_bands[b];

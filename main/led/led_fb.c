@@ -65,7 +65,7 @@ void led_fade_all(uint8_t rate) {
     }
 }
 
-/* 卷积权重:中心 keep = 255-amount,四邻各 share = amount/4,归一化到 255 */
+/* 卷积权重：中心 keep = 255-amount，四邻各 share = amount/4，归一化到 255 */
 void led_blur2d(uint8_t amount) {
     if (amount == 0) return;
 
@@ -94,7 +94,7 @@ void led_blur2d(uint8_t amount) {
                 if (y < lh - 1) v += (uint32_t)tmp[((y + 1) * lw + x) * 3 + c] * share;
 
                 v >>= 8;
-                /* 保留淡入淡出的最低可见值,避免像素直接跳到 0 产生闪烁 */
+                /* 保留淡入淡出的最低可见值，避免像素直接跳到 0 产生闪烁 */
                 if (v == 0 && tmp[idx * 3 + c] > 4) v = 1;
                 s_fb[idx * 3 + c] = (v > 255) ? 255 : (uint8_t)v;
             }

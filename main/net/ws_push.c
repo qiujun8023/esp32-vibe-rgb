@@ -26,7 +26,7 @@ static void push_task(void* arg) {
     TickType_t last_ping_tick = xTaskGetTickCount();
     int        fps_cnt = 0, fps_val = 0;
 
-    /* 任务常驻,用 static 而非栈或 heap:栈会超,heap 会频繁分配释放 */
+    /* 任务常驻，用 static 而非栈或 heap：栈会超，heap 会频繁分配释放 */
     static uint8_t fb[LED_MAX_COUNT * 3];
     static char    msg[LED_MAX_COUNT * 6 + 1024];
 
@@ -76,7 +76,7 @@ static void push_task(void* arg) {
         int pos     = 0;
         int max_len = (int)sizeof(msg);
 
-        /* 手写 hex 序列化比 snprintf("%02x") 快约 10 倍,对每帧广播值得 */
+        /* 手写 hex 序列化比 snprintf("%02x") 快约 10 倍，对每帧广播值得 */
         static const char HEX_CHARS[] = "0123456789abcdef";
         pos += snprintf(msg + pos, max_len - pos, "{\"pixels\":\"");
         for (int i = 0; i < fblen && pos + 2 < max_len; i++) {
@@ -106,7 +106,7 @@ static void push_task(void* arg) {
         for (int i = 0; i < ws_count; i++) {
             esp_err_t err = httpd_ws_send_frame_async(s_server_ref, ws_fds[i], &pkt);
             if (err != ESP_OK) {
-                /* 这几种错误码表示 socket 已死,必须主动关闭否则 fd 泄漏 */
+                /* 这几种错误码表示 socket 已死，必须主动关闭否则 fd 泄漏 */
                 if (err == ESP_ERR_INVALID_STATE || err == ESP_ERR_NOT_FOUND || err == ESP_ERR_HTTPD_RESP_HDR) {
                     ESP_LOGD(TAG, "ws fd=%d disconnected", ws_fds[i]);
                     httpd_sess_trigger_close(s_server_ref, ws_fds[i]);

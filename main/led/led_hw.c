@@ -79,7 +79,7 @@ void led_flush(void) {
 
     int count = s_w * s_h;
 
-    /* 逐像素覆盖而不 clear,避免旧帧残影和每帧黑屏闪烁 */
+    /* 逐像素覆盖而不 clear，避免旧帧残影和每帧黑屏闪烁 */
     for (int y = 0; y < s_h; y++) {
         for (int x = 0; x < s_w; x++) {
             int phy_idx = s_lookup[y * s_w + x];

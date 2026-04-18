@@ -68,7 +68,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
 
     buf[pkt.len] = '\0';
 
-    /* 文本层 ping/pong,浏览器 WebSocket API 无法发 control frame 时使用 */
+    /* 文本层 ping/pong，浏览器 WebSocket API 无法发 control frame 时使用 */
     if (pkt.len == 4 && strcmp((char*)buf, "ping") == 0) {
         httpd_ws_frame_t pong = {.type = HTTPD_WS_TYPE_TEXT, .payload = (uint8_t*)"pong", .len = 4};
         return httpd_ws_send_frame(req, &pong);
@@ -140,7 +140,7 @@ static esp_err_t handle_ws(httpd_req_t* req) {
     mic_apply_settings(&snap);
     effects_set_mode(snap.effect);
 
-    /* 回传完整配置,前端据此同步 custom1/2/3 等 */
+    /* 回传完整配置，前端据此同步 custom1/2/3 等 */
     char* json = settings_to_json(&snap);
     if (json) {
         httpd_ws_frame_t resp = {
@@ -244,7 +244,7 @@ void http_server_start(void) {
     hcfg.max_uri_handlers = 16;
     hcfg.stack_size       = 8192;
     hcfg.uri_match_fn     = httpd_uri_match_wildcard;
-    /* 5s 无读写即关闭连接,防止假死客户端长期占用 socket */
+    /* 5 s 无读写即关闭连接，防止假死客户端长期占用 socket */
     hcfg.recv_wait_timeout = 5;
     hcfg.send_wait_timeout = 5;
     hcfg.lru_purge_enable  = true;

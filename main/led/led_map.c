@@ -10,7 +10,7 @@ static int get_physical_idx(int px, int py) {
     int x = (s_start & 1) ? (s_w - 1 - px) : px;
     int y = (s_start & 2) ? (s_h - 1 - py) : py;
 
-    /* 蛇形走线在 start 翻转之后再做奇偶行反向,否则起点不在角落时会错位 */
+    /* 蛇形走线在 start 翻转之后再做奇偶行反向，否则起点不在角落时会错位 */
     if (s_serpentine && (y & 1)) {
         x = (s_w - 1) - x;
     }
